@@ -13,7 +13,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <Prefer32Bit>false</Prefer32Bit>
-    <Version>1.0.0</Version>
+    <Version>1.1.0</Version>
     <Product>Monitor Switcher</Product>
     <AssemblyTitle>Monitor Switcher</AssemblyTitle>
     <Description>Switches shared monitors between this PC and a Mac.</Description>
@@ -21,6 +21,14 @@
     <DebugType>none</DebugType>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
   </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Releases this app updates from (owner/repo). -->
+    <AssemblyAttribute Include="System.Reflection.AssemblyMetadataAttribute">
+      <_Parameter1>UpdateRepository</_Parameter1>
+      <_Parameter2>4apajeb/Monitor-switcher</_Parameter2>
+    </AssemblyAttribute>
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="PresentationCore" />

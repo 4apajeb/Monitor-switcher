@@ -31,11 +31,11 @@ namespace MonitorSwitcher
                 tcp = new TcpListener(IPAddress.Any, Core.PcPort);
                 tcp.Start();
                 new Thread(AcceptLoop) { IsBackground = true, Name = "http" }.Start();
-                core.Log("Чекаю на Mac на порту " + Core.PcPort);
+                core.Log("Listening for the Mac on port " + Core.PcPort);
             }
             catch (Exception ex)
             {
-                core.Log("Не вдалося відкрити порт " + Core.PcPort + ": " + ex.Message);
+                core.Log("Couldn't open port " + Core.PcPort + ": " + ex.Message);
             }
 
             try
@@ -50,7 +50,7 @@ namespace MonitorSwitcher
             }
             catch (Exception ex)
             {
-                core.Log("Пошук у мережі недоступний: " + ex.Message);
+                core.Log("Network discovery unavailable: " + ex.Message);
             }
         }
 
@@ -150,7 +150,7 @@ namespace MonitorSwitcher
                 string macName = Get(q, "mac", "Mac");
                 int port;
                 if (!int.TryParse(Get(q, "port", "47801"), out port)) port = 47801;
-                if (!core.AskPairing(macName, remote)) return Error("підключення відхилено на ПК");
+                if (!core.AskPairing(macName, remote)) return Error("pairing was declined on the PC");
                 string token = Core.NewToken();
                 core.SetPairing(macName, remote, port, token);
                 return new Dictionary<string, object> { { "ok", true }, { "token", token }, { "name", Environment.MachineName } };
@@ -159,7 +159,7 @@ namespace MonitorSwitcher
             if (!settings.IsPaired || Get(q, "token", "") != settings.Token)
             {
                 code = 403;
-                return Error("невірний токен");
+                return Error("bad token");
             }
             core.TouchMac(remote);
 
@@ -180,14 +180,14 @@ namespace MonitorSwitcher
                 {
                     string id = Get(q, "monitor", "");
                     uint value;
-                    if (!uint.TryParse(Get(q, "value", ""), out value)) return Error("невірне значення");
+                    if (!uint.TryParse(Get(q, "value", ""), out value)) return Error("bad value");
                     string result = Ddc.SetInput(id, Get(q, "name", ""), value);
                     core.Log(id + " → " + Inputs.Name((int)value) + (result == "ok" ? "" : ": " + result));
                     return new Dictionary<string, object> { { "ok", result == "ok" }, { "result", result } };
                 }
                 case "/displays-off":
                     Ddc.DisplaysOff();
-                    core.Log("Екрани ПК вимкнено на прохання Mac");
+                    core.Log("Turned the PC's displays off at the Mac's request");
                     return Ok();
                 case "/mode":
                     core.SetMode(Get(q, "mode", "?"), Get(q, "reason", "Mac"));
@@ -195,11 +195,11 @@ namespace MonitorSwitcher
                 case "/log":
                     return new Dictionary<string, object> { { "ok", true }, { "lines", core.LogLines() } };
                 case "/unpair":
-                    core.ClearPairing("Mac від'єднав цей ПК");
+                    core.ClearPairing("The Mac unpaired this PC");
                     return Ok();
                 default:
                     code = 404;
-                    return Error("невідомий запит");
+                    return Error("unknown request");
             }
         }
 

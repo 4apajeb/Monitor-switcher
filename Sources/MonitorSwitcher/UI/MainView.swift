@@ -7,12 +7,12 @@ enum Page: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .overview: return "Огляд"
-        case .monitors: return "Монітори"
-        case .devices: return "Пристрої"
-        case .pc: return "ПК"
-        case .log: return "Журнал"
-        case .settings: return "Налаштування"
+        case .overview: return "Overview"
+        case .monitors: return "Monitors"
+        case .devices: return "Devices"
+        case .pc: return "PC"
+        case .log: return "Activity"
+        case .settings: return "Settings"
         }
     }
 
@@ -77,7 +77,7 @@ private struct Sidebar: View {
                 AppGlyph(size: 40)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Monitor Switcher").font(.headline)
-                    Text("Монітори у \(model.mode == .mac ? "Mac" : "ПК")")
+                    Text("Monitors on the \(model.mode.title)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .contentTransition(.opacity)
@@ -98,7 +98,7 @@ private struct Sidebar: View {
                 Circle()
                     .fill(model.config.automationEnabled ? Color.green : Color.orange)
                     .frame(width: 8, height: 8)
-                Text(model.config.automationEnabled ? "Автоматичне перемикання" : "Автоперемикання на паузі")
+                Text(model.config.automationEnabled ? "Automatic switching on" : "Automatic switching paused")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

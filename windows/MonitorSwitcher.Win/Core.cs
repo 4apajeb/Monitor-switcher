@@ -22,6 +22,7 @@ namespace MonitorSwitcher
         public bool Autostart { get; set; } = true;
         /// <summary>Give the monitors to this PC as soon as its keyboard/mouse is used.</summary>
         public bool SwitchOnPcInput { get; set; } = true;
+        public bool AutoUpdate { get; set; } = true;
 
         [ScriptIgnore]
         public bool IsPaired => !string.IsNullOrEmpty(Token) && !string.IsNullOrEmpty(MacHost);
@@ -31,7 +32,13 @@ namespace MonitorSwitcher
     public class Core
     {
         public const int PcPort = 47800;
-        public const string Version = "1.0.0";
+        public static readonly string Version = ReadVersion();
+
+        static string ReadVersion()
+        {
+            var v = typeof(Core).Assembly.GetName().Version;
+            return v == null ? "0.0.0" : v.Major + "." + v.Minor + "." + Math.Max(0, v.Build);
+        }
 
         public static readonly string DataDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MonitorSwitcher");
@@ -43,6 +50,7 @@ namespace MonitorSwitcher
         readonly List<string> logLines = new List<string>();
         Server server;
         Timer pollTimer;
+        Timer updateTimer;
         DateTime modeSyncedAt = DateTime.MinValue;
         DateTime lastInputReport = DateTime.MinValue;
         DateTime suppressInputUntil = DateTime.MinValue;
@@ -54,6 +62,9 @@ namespace MonitorSwitcher
         public bool MacOnline { get; private set; }
         public string MacError { get; private set; }
         public bool Busy { get; private set; }
+        public ReleaseInfo UpdateAvailable { get; private set; }
+        public string UpdateStatus { get; private set; } = "";
+        public bool Updating { get; private set; }
 
         /// <summary>Raised on the UI thread whenever something visible changed.</summary>
         public event Action Changed;
@@ -71,17 +82,19 @@ namespace MonitorSwitcher
         public void Start()
         {
             TrimLogFile();
-            Log("Monitor Switcher " + Version + " запущено на " + Environment.MachineName);
+            Log((Environment.GetCommandLineArgs().Contains("--installed") ? "Installed" : "Started") + " Monitor Switcher " + Version + " on " + Environment.MachineName);
             server = new Server(this);
             server.Start();
             RefreshMonitorsAsync();
             pollTimer = new Timer(_ => PollMac(), null, 1500, 15000);
             new Thread(WatchInput) { IsBackground = true, Name = "input-watch" }.Start();
+            updateTimer = new Timer(_ => CheckForUpdates(false), null, TimeSpan.FromSeconds(30), TimeSpan.FromHours(6));
         }
 
         public void Stop()
         {
             pollTimer?.Dispose();
+            updateTimer?.Dispose();
             server?.Stop();
         }
 
@@ -101,7 +114,7 @@ namespace MonitorSwitcher
         public void SaveSettings()
         {
             try { File.WriteAllText(SettingsPath, new JavaScriptSerializer().Serialize(Settings), Encoding.UTF8); }
-            catch (Exception ex) { Log("Не вдалося зберегти налаштування: " + ex.Message); }
+            catch (Exception ex) { Log("Couldn't save settings: " + ex.Message); }
             RaiseChanged();
         }
 
@@ -116,14 +129,14 @@ namespace MonitorSwitcher
 
         public bool AskPairing(string macName, string macHost)
         {
-            Log("Mac «" + macName + "» (" + macHost + ") просить підключення");
+            Log("Mac \u201c" + macName + "\u201d (" + macHost + ") wants to pair");
             bool approved = false;
             try
             {
                 approved = (bool)ui.Invoke(new Func<bool>(() => ApprovePairing != null && ApprovePairing(macName, macHost)));
             }
-            catch (Exception ex) { Log("Помилка діалогу: " + ex.Message); }
-            Log(approved ? "Підключення дозволено" : "Підключення відхилено");
+            catch (Exception ex) { Log("Dialog error: " + ex.Message); }
+            Log(approved ? "Pairing allowed" : "Pairing declined");
             return approved;
         }
 
@@ -154,7 +167,7 @@ namespace MonitorSwitcher
         {
             if (!Settings.IsPaired) return;
             ThreadPool.QueueUserWorkItem(_ => CallMac("/unpair", null, 2000));
-            ClearPairing("Mac від'єднано");
+            ClearPairing("Unpaired the Mac");
         }
 
         /// <summary>The Mac reached us from a new address (DHCP) — remember it.</summary>
@@ -163,7 +176,7 @@ namespace MonitorSwitcher
             MacOnline = true;
             if (Settings.MacHost != host)
             {
-                Log("Нова адреса Mac: " + host);
+                Log("The Mac's new address: " + host);
                 Settings.MacHost = host;
                 SaveSettings();
             }
@@ -176,7 +189,7 @@ namespace MonitorSwitcher
             ThreadPool.QueueUserWorkItem(_ =>
             {
                 try { SetMonitors(Ddc.List()); }
-                catch (Exception ex) { Log("Не вдалося прочитати монітори: " + ex.Message); }
+                catch (Exception ex) { Log("Couldn't read the monitors: " + ex.Message); }
             });
         }
 
@@ -192,14 +205,14 @@ namespace MonitorSwitcher
             modeSyncedAt = DateTime.UtcNow;
             if (Mode == mode) return;
             Mode = mode;
-            Log("Монітори тепер у " + (mode == "pc" ? "ПК" : mode == "mac" ? "Mac" : "?") + " (" + source + ")");
+            Log("Monitors are now on the " + (mode == "pc" ? "PC" : mode == "mac" ? "Mac" : "?") + " (" + source + ")");
             RaiseChanged();
         }
 
         /// <summary>Manual switch from this PC (tray or window). The Mac does the actual work.</summary>
         public void RequestSwitch(string mode)
         {
-            if (!Settings.IsPaired) { Log("Спершу підключіть Mac"); return; }
+            if (!Settings.IsPaired) { Log("Pair a Mac first"); return; }
             if (mode == "mac") suppressInputUntil = DateTime.UtcNow.AddSeconds(60);
             Busy = true;
             RaiseChanged();
@@ -208,7 +221,7 @@ namespace MonitorSwitcher
                 var reply = CallMac("/switch", new Dictionary<string, string> { { "mode", mode } }, 8000);
                 if (reply != null)
                 {
-                    Log("Mac перемикає монітори на " + (mode == "pc" ? "ПК" : "Mac"));
+                    Log("The Mac is switching the monitors to the " + (mode == "pc" ? "PC" : "Mac"));
                     ApplyMacReply(reply);
                 }
                 Busy = false;
@@ -277,7 +290,7 @@ namespace MonitorSwitcher
                 if (reply == null) return;
                 object switched;
                 if (reply.TryGetValue("switched", out switched) && switched is bool b && b)
-                    Log("Ви за ПК — Mac віддає монітори");
+                    Log("You're at the PC — the Mac hands over the monitors");
                 ApplyMacReply(reply);
             });
         }
@@ -310,7 +323,7 @@ namespace MonitorSwitcher
             }
             catch (WebException ex) when (ex.Response is HttpWebResponse r && r.StatusCode == HttpStatusCode.Forbidden)
             {
-                SetMacOnline(false, "Mac більше не впізнає цей ПК — підключіть заново");
+                SetMacOnline(false, "The Mac no longer recognizes this PC — pair again");
                 return null;
             }
             catch (Exception ex)
@@ -326,8 +339,67 @@ namespace MonitorSwitcher
             bool changed = MacOnline != online;
             MacOnline = online;
             MacError = error;
-            if (changed) Log(online ? "Зв'язок з Mac є" : "Mac не відповідає: " + error);
+            if (changed) Log(online ? "Connected to the Mac" : "The Mac isn't answering: " + error);
             RaiseChanged();
+        }
+
+        // ---------------------------------------------------------------- updates
+
+        public void CheckForUpdates(bool userInitiated)
+        {
+            if (Updating) return;
+            try
+            {
+                var release = Updater.Latest();
+                if (Updater.IsNewer(release.Version, Version) && !string.IsNullOrEmpty(release.ExeUrl))
+                {
+                    bool isNew = UpdateAvailable == null || UpdateAvailable.Version != release.Version;
+                    UpdateAvailable = release;
+                    UpdateStatus = "Version " + release.Version + " is available";
+                    if (isNew) Log("Update available: " + release.Version);
+                    RaiseChanged();
+                    if (Settings.AutoUpdate && !Busy) InstallUpdate();
+                }
+                else
+                {
+                    UpdateAvailable = null;
+                    UpdateStatus = "Up to date · checked " + DateTime.Now.ToString("HH:mm");
+                    RaiseChanged();
+                }
+            }
+            catch (Exception ex)
+            {
+                if (userInitiated) Log("Update check failed: " + ex.Message);
+                UpdateStatus = userInitiated ? "Couldn't check: " + ex.Message : UpdateStatus;
+                RaiseChanged();
+            }
+        }
+
+        public void CheckForUpdatesAsync() => ThreadPool.QueueUserWorkItem(_ => CheckForUpdates(true));
+
+        /// <summary>Downloads the new version and hands over to it (this process will be asked to quit).</summary>
+        public void InstallUpdate()
+        {
+            var release = UpdateAvailable;
+            if (release == null || Updating) return;
+            Updating = true;
+            UpdateStatus = "Installing " + release.Version + "…";
+            RaiseChanged();
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                try
+                {
+                    Log("Installing version " + release.Version);
+                    Updater.DownloadAndRun(release);
+                }
+                catch (Exception ex)
+                {
+                    Updating = false;
+                    UpdateStatus = "Update failed: " + ex.Message;
+                    Log(UpdateStatus);
+                    RaiseChanged();
+                }
+            });
         }
 
         // ---------------------------------------------------------------- misc

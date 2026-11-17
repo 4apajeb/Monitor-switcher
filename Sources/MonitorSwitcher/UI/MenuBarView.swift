@@ -13,7 +13,7 @@ struct MenuBarView: View {
                 AppGlyph(size: 32)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Monitor Switcher").font(.headline)
-                    Text(model.isSwitching ? "Перемикаю…" : "Монітори у \(model.mode == .mac ? "Mac" : "ПК")")
+                    Text(model.isSwitching ? "Switching…" : "Monitors on the \(model.mode.title)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -28,8 +28,8 @@ struct MenuBarView: View {
 
             Toggle(isOn: $model.config.automationEnabled) {
                 VStack(alignment: .leading, spacing: 1) {
-                    Text("Автоматично")
-                    Text("за клавіатурою й мишею").font(.caption).foregroundStyle(.secondary)
+                    Text("Automatic")
+                    Text("follows your keyboard and mouse").font(.caption).foregroundStyle(.secondary)
                 }
             }
             .toggleStyle(.switch)
@@ -47,6 +47,17 @@ struct MenuBarView: View {
                         }
                         .font(.callout)
                     }
+                    if let pc = model.config.pc {
+                        HStack(spacing: 8) {
+                            Image(systemName: "pc").frame(width: 18).foregroundStyle(.secondary)
+                            Text(pc.name).lineLimit(1)
+                            Spacer()
+                            StatusDot(isOn: model.pcOnline == true)
+                            Text(model.pcOnline == true ? "on" : "off").font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 26, alignment: .leading)
+                        }
+                        .font(.callout)
+                    }
                 }
                 .padding(10)
                 .background(Color.primary.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
@@ -56,11 +67,21 @@ struct MenuBarView: View {
                 Label(note, systemImage: "hourglass").font(.caption).foregroundStyle(.orange)
             }
 
+            if let release = model.updateAvailable {
+                Button {
+                    model.installUpdate(release)
+                } label: {
+                    Label("Update to \(release.version)", systemImage: "arrow.down.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+            }
+
             Divider()
 
             VStack(spacing: 2) {
-                MenuRow(title: "Відкрити Monitor Switcher", symbol: "macwindow", action: openWindow)
-                MenuRow(title: "Вийти", symbol: "power", action: quit)
+                MenuRow(title: "Open Monitor Switcher", symbol: "macwindow", action: openWindow)
+                MenuRow(title: "Quit", symbol: "power", action: quit)
             }
         }
         .padding(16)
@@ -76,7 +97,7 @@ private struct ModeButton: View {
 
     var body: some View {
         Button {
-            if !isActive { model.switchTo(mode, reason: "вручну з рядка меню") }
+            if !isActive { model.switchTo(mode, reason: "manual, from the menu bar") }
         } label: {
             VStack(spacing: 6) {
                 Image(systemName: mode.symbol).font(.system(size: 22))

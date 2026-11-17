@@ -79,9 +79,9 @@ enum PCClientError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case let .unreachable(message): return "ПК не відповідає (\(message))"
+        case let .unreachable(message): return "the PC isn't answering (\(message))"
         case let .rejected(message): return message
-        case .badResponse: return "незрозуміла відповідь ПК"
+        case .badResponse: return "unexpected reply from the PC"
         }
     }
 }
@@ -109,7 +109,7 @@ enum PCClient {
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: timeout)
         request.httpMethod = "GET"
         let semaphore = DispatchSemaphore(value: 0)
-        var result: Result<[String: Any], PCClientError> = .failure(.unreachable("тайм-аут"))
+        var result: Result<[String: Any], PCClientError> = .failure(.unreachable("timed out"))
         session.dataTask(with: request) { data, response, error in
             defer { semaphore.signal() }
             if let error {
@@ -121,9 +121,9 @@ enum PCClient {
                 return
             }
             if (response as? HTTPURLResponse)?.statusCode == 403 {
-                result = .failure(.rejected("ПК не впізнає цей Mac — підключіть ПК заново"))
+                result = .failure(.rejected("the PC doesn't recognize this Mac — pair it again"))
             } else if json["ok"] as? Bool == false {
-                result = .failure(.rejected(json["error"] as? String ?? "ПК повернув помилку"))
+                result = .failure(.rejected(json["error"] as? String ?? "the PC reported an error"))
             } else {
                 result = .success(json)
             }

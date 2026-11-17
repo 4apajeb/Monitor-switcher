@@ -17,7 +17,7 @@ namespace MonitorSwitcher
         public bool Ddc { get; set; }
         public string Device { get; set; }
 
-        public string InputText => Ddc ? Inputs.Name(Input) : "DDC недоступний";
+        public string InputText => Ddc ? Inputs.Name(Input) : "no DDC";
         public string Detail => Id + (string.IsNullOrEmpty(Device) ? "" : " · " + Device);
     }
 
@@ -29,14 +29,12 @@ namespace MonitorSwitcher
             {
                 case 1: return "VGA";
                 case 3: return "DVI";
-                case 5: return "Samsung · код 5";
-                case 6: return "Samsung · код 6";
                 case 15: return "DisplayPort 1";
                 case 16: return "DisplayPort 2";
                 case 17: return "HDMI 1";
                 case 18: return "HDMI 2";
                 case 27: return "USB-C";
-                default: return value < 0 ? "—" : "код " + value;
+                default: return value < 0 ? "—" : "code " + value;
             }
         }
     }
@@ -190,7 +188,7 @@ namespace MonitorSwitcher
                     if (byName != null) target = byName.Id;
                 }
 
-                string result = "монітор " + pnpId + " не знайдено";
+                string result = "monitor " + pnpId + " not found";
                 ForEach((m, handle) =>
                 {
                     if (!string.Equals(m.Id, target, StringComparison.OrdinalIgnoreCase)) return true;
@@ -201,7 +199,7 @@ namespace MonitorSwitcher
                         ok = SetVCPFeature(handle, InputSourceVcp, value);
                         if (!ok) { error = Marshal.GetLastWin32Error(); Thread.Sleep(200); }
                     }
-                    result = ok ? "ok" : "SetVCPFeature не вдалося (помилка " + error + ")";
+                    result = ok ? "ok" : "SetVCPFeature failed (error " + error + ")";
                     return false;
                 });
                 return result;

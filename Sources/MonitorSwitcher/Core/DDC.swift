@@ -181,10 +181,10 @@ enum DDCError: Error, CustomStringConvertible {
 
     var description: String {
         switch self {
-        case .noTransport: return "дисплей не має DDC-каналу"
-        case .apiUnavailable: return "приватні DDC API недоступні"
-        case let .ioError(code): return String(format: "помилка I2C 0x%08x", code)
-        case let .badReply(bytes): return "некоректна відповідь: " + bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
+        case .noTransport: return "no DDC channel to this display"
+        case .apiUnavailable: return "the private DDC APIs are unavailable"
+        case let .ioError(code): return String(format: "I2C error 0x%08x", code)
+        case let .badReply(bytes): return "invalid reply: " + bytes.map { String(format: "%02x", $0) }.joined(separator: " ")
         }
     }
 }

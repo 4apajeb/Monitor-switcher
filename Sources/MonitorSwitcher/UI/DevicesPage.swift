@@ -6,11 +6,11 @@ struct DevicesPage: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "Пристрої", subtitle: "Що означає «я пішов працювати за ПК»")
+            PageHeader(title: "Devices", subtitle: "What tells the app you moved to the PC")
 
             Card {
-                SectionTitle(title: "Клавіатура й миша", symbol: "keyboard")
-                Text("Коли вибрані пристрої відключаються від Mac (ви перемкнули їх на ПК), монітори переходять на ПК. Щойно будь-який із них знову підключається до Mac — монітори повертаються.")
+                SectionTitle(title: "Keyboard and mouse", symbol: "keyboard")
+                Text("Pick the devices you switch between the Mac and the PC (multi-host Bluetooth keyboards and mice). When they disconnect from the Mac, the monitors can go to the PC; as soon as any of them reconnects, the monitors come back.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -18,7 +18,7 @@ struct DevicesPage: View {
                 VStack(spacing: 0) {
                     let rows = model.deviceRows
                     if rows.isEmpty {
-                        Text("Не бачу жодної Bluetooth- чи USB-клавіатури або миші")
+                        Text("No Bluetooth or USB keyboards or mice found")
                             .foregroundStyle(.secondary)
                             .padding(.vertical, 8)
                     }
@@ -30,9 +30,21 @@ struct DevicesPage: View {
             }
 
             Card {
-                SectionTitle(title: "Коли віддавати монітори ПК", symbol: "arrow.right.circle")
+                SectionTitle(title: "Going to the PC", symbol: "arrow.right.circle")
 
-                Picker("Умова", selection: $model.config.triggerRule) {
+                if model.config.pc != nil {
+                    Text("The PC app is paired, so the monitors move only when a selected device has left the Mac and you actually start using the PC. A keyboard that just fell asleep never switches anything.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("The settings below are only used while the PC app can't be reached.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Text("Without the PC app the Mac has to guess. Install Monitor Switcher on the PC (PC page) for reliable switching.")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Picker("Condition", selection: $model.config.triggerRule) {
                     ForEach(TriggerRule.allCases) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
@@ -42,8 +54,8 @@ struct DevicesPage: View {
 
                 Toggle(isOn: $model.config.activityGuard) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Захист від засинання клавіатури").font(.body.weight(.medium))
-                        Text("Bluetooth-клавіатура й миша відключаються, коли засинають. Монітори перейдуть на ПК, лише якщо Mac використовували не раніше ніж за \(Int(model.config.activityWindow)) с до відключення.")
+                        Text("Ignore devices that fall asleep").font(.body.weight(.medium))
+                        Text("Bluetooth keyboards and mice disconnect when they sleep. Only switch if the Mac was used within \(Int(model.config.activityWindow)) s before they disconnected.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -52,15 +64,15 @@ struct DevicesPage: View {
                 .toggleStyle(.switch)
 
                 if model.config.activityGuard {
-                    LabeledSlider(title: "Вікно активності", value: $model.config.activityWindow, range: 5...180, step: 5, unit: "с")
+                    LabeledSlider(title: "Activity window", value: $model.config.activityWindow, range: 5...180, step: 5, unit: "s")
                 }
 
-                LabeledSlider(title: "Затримка перед перемиканням", value: $model.config.disconnectDelay, range: 0...10, step: 0.5, unit: "с")
+                LabeledSlider(title: "Delay before switching", value: $model.config.disconnectDelay, range: 0...10, step: 0.5, unit: "s")
             }
 
             Card {
-                SectionTitle(title: "Назад на Mac", symbol: "arrow.uturn.left.circle")
-                Text("Будь-який вибраний пристрій знову підключився до Mac — монітори одразу повертаються. Без затримок і перевірок.")
+                SectionTitle(title: "Coming back to the Mac", symbol: "arrow.uturn.left.circle")
+                Text("As soon as any selected device reconnects to the Mac, the monitors come back — no delay, no checks.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
@@ -83,7 +95,7 @@ private struct DeviceRowView: View {
                 Text(row.name).font(.body.weight(.medium))
                 HStack(spacing: 6) {
                     StatusDot(isOn: row.isConnected)
-                    Text(row.isConnected ? "з Mac" + (row.transport.map { " · \($0)" } ?? "") : "не з Mac (на ПК або спить)")
+                    Text(row.isConnected ? "on the Mac" + (row.transport.map { " · \($0)" } ?? "") : "not on the Mac (on the PC or asleep)")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -106,7 +118,7 @@ private struct LabeledSlider: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(title).frame(width: 220, alignment: .leading)
+            Text(title).frame(width: 200, alignment: .leading)
             Slider(value: $value, in: range, step: step)
             Text(value.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(value)) \(unit)" : String(format: "%.1f \(unit)", value))
                 .font(.callout.monospacedDigit())

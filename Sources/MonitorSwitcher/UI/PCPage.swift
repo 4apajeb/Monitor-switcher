@@ -7,7 +7,7 @@ struct PCPage: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
-            PageHeader(title: "ПК", subtitle: "Monitor Switcher для Windows працює в парі з цим Mac")
+            PageHeader(title: "PC", subtitle: "Monitor Switcher for Windows works as a pair with this Mac")
 
             if let pc = model.config.pc {
                 PairedCard(pc: pc)
@@ -16,11 +16,11 @@ struct PCPage: View {
             }
 
             Card {
-                SectionTitle(title: "Навіщо програма на ПК", symbol: "questionmark.circle")
+                SectionTitle(title: "Why install the PC app", symbol: "questionmark.circle")
                 VStack(alignment: .leading, spacing: 8) {
-                    Bullet(symbol: "hand.tap", text: "ПК повідомляє Mac, коли ви справді почали ним користуватися. Клавіатура, що просто заснула, більше не перемикає монітори.")
-                    Bullet(symbol: "cable.connector", text: "ПК перемикає входи моніторів по своєму кабелю, якщо перехідник Mac не пропускає DDC.")
-                    Bullet(symbol: "menubar.rectangle", text: "У треї Windows є кнопки «Монітори → Mac / ПК» для ручного перемикання.")
+                    Bullet(symbol: "hand.tap", text: "The PC tells the Mac when you actually start using it, so a keyboard that just fell asleep never switches the monitors.")
+                    Bullet(symbol: "cable.connector", text: "The PC can switch inputs over its own cables when the Mac's adapters don't pass DDC.")
+                    Bullet(symbol: "menubar.rectangle", text: "The Windows tray icon has “Monitors → Mac / PC” for manual switching.")
                 }
             }
 
@@ -50,8 +50,8 @@ private struct PairedCard: View {
                     }
                 }
                 Spacer()
-                Button { model.refreshPC() } label: { Label("Перевірити", systemImage: "arrow.clockwise") }
-                Button("Від'єднати", role: .destructive) { model.unpairPC() }
+                Button { model.refreshPC() } label: { Label("Check", systemImage: "arrow.clockwise") }
+                Button("Unpair", role: .destructive) { model.unpairPC() }
             }
 
             if let error = model.pcError, model.pcOnline == false {
@@ -60,7 +60,7 @@ private struct PairedCard: View {
 
             if !model.pcMonitors.isEmpty {
                 Divider().padding(.vertical, 2)
-                Text("Монітори, які бачить ПК").font(.headline)
+                Text("Monitors the PC sees").font(.headline)
                 ForEach(model.pcMonitors) { monitor in
                     HStack(spacing: 10) {
                         Image(systemName: "display").foregroundStyle(Palette.tint(.pc)).frame(width: 22)
@@ -72,7 +72,7 @@ private struct PairedCard: View {
                         if monitor.ddc {
                             Pill(text: "DDC ✓ · \(InputSource.name(UInt16(max(0, monitor.input))))", symbol: "cable.connector", color: .blue)
                         } else {
-                            Pill(text: "DDC недоступний", color: .orange)
+                            Pill(text: "no DDC", color: .orange)
                         }
                     }
                 }
@@ -81,11 +81,11 @@ private struct PairedCard: View {
     }
 
     private var statusText: String {
-        let version = model.pcVersion.map { " · версія \($0)" } ?? ""
+        let version = model.pcVersion.map { " · version \($0)" } ?? ""
         switch model.pcOnline {
-        case true?: return "на зв'язку · \(pc.host)\(version)"
-        case false?: return "не відповідає · \(pc.host)"
-        case nil: return "перевіряю… · \(pc.host)"
+        case true?: return "online · \(pc.host)\(version)"
+        case false?: return "not answering · \(pc.host)"
+        case nil: return "checking… · \(pc.host)"
         }
     }
 }
@@ -96,8 +96,8 @@ private struct SetupCard: View {
 
     var body: some View {
         Card {
-            SectionTitle(title: "Підключити ПК", symbol: "link")
-            Text("Запустіть Monitor Switcher на ПК (як завантажити — нижче), потім натисніть «Знайти ПК». На ПК з'явиться запит — натисніть «Дозволити».")
+            SectionTitle(title: "Pair a PC", symbol: "link")
+            Text("Start Monitor Switcher on the PC (see below how to get it), then press Find PCs. The PC will ask you to confirm — press Allow there.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -106,9 +106,9 @@ private struct SetupCard: View {
                     model.discoverPCs()
                 } label: {
                     if model.isDiscovering {
-                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Шукаю…") }
+                        HStack(spacing: 6) { ProgressView().controlSize(.small); Text("Searching…") }
                     } else {
-                        Label("Знайти ПК", systemImage: "magnifyingglass")
+                        Label("Find PCs", systemImage: "magnifyingglass")
                     }
                 }
                 .controlSize(.large)
@@ -121,11 +121,11 @@ private struct SetupCard: View {
                     Image(systemName: "pc").font(.title3).foregroundStyle(Palette.tint(.pc))
                     VStack(alignment: .leading, spacing: 1) {
                         Text(pc.name).font(.body.weight(.medium))
-                        Text("\(pc.host) · версія \(pc.version)\(pc.paired ? " · вже підключений до іншого Mac" : "")")
+                        Text("\(pc.host) · version \(pc.version)\(pc.paired ? " · paired with another Mac" : "")")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Button("Підключити") { model.pair(host: pc.host, port: pc.port) }
+                    Button("Pair") { model.pair(host: pc.host, port: pc.port) }
                         .buttonStyle(.borderedProminent)
                         .disabled(model.pairingHost != nil)
                 }
@@ -134,7 +134,7 @@ private struct SetupCard: View {
             }
 
             if let host = model.pairingHost {
-                BannerView(text: "Чекаю підтвердження на ПК (\(host))… Натисніть «Дозволити» на екрані ПК.",
+                BannerView(text: "Waiting for confirmation on the PC (\(host))… Press Allow on the PC's screen.",
                            color: Palette.tint(.pc), showsProgress: true)
             }
             if let error = model.pairingError {
@@ -143,15 +143,15 @@ private struct SetupCard: View {
 
             Divider().padding(.vertical, 2)
             HStack(spacing: 8) {
-                Text("Або за IP-адресою:").foregroundStyle(.secondary)
+                Text("Or by IP address:").foregroundStyle(.secondary)
                 TextField("192.168.1.20", text: $manualHost)
                     .textFieldStyle(.roundedBorder)
                     .frame(maxWidth: 200)
                     .onSubmit { model.pair(host: manualHost) }
-                Button("Підключити") { model.pair(host: manualHost) }
+                Button("Pair") { model.pair(host: manualHost) }
                     .disabled(manualHost.trimmingCharacters(in: .whitespaces).isEmpty || model.pairingHost != nil)
             }
-            Text("IP-адресу ПК видно у вікні Monitor Switcher на ПК, у розділі «Налаштування».")
+            Text("The PC's address is shown in Monitor Switcher's window on the PC, under Settings.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }
@@ -162,27 +162,29 @@ private struct DownloadCard: View {
 
     var body: some View {
         Card {
-            SectionTitle(title: "Програма для Windows", symbol: "arrow.down.circle")
-            if model.windowsAppURL == nil {
-                Text("Ця збірка Mac-застосунку не містить файлу для Windows.").foregroundStyle(.secondary)
-            } else if let error = model.serverError {
+            SectionTitle(title: "Get the Windows app", symbol: "arrow.down.circle")
+            if let error = model.serverError {
                 BannerView(text: error, symbol: "exclamationmark.triangle.fill", color: .orange)
-            } else {
-                Text("Відкрийте на ПК у браузері одну з адрес — Mac сам віддасть MonitorSwitcher.exe. Після запуску програма встановиться, додасться в автозапуск і житиме в треї.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Text("Open one of these addresses in a browser on the PC — the Mac serves MonitorSwitcher.exe itself. Or download it from the GitHub releases page. On first run it installs itself, starts with Windows and lives in the tray.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            if model.windowsAppURL != nil {
                 ForEach(model.downloadLinks, id: \.self) { link in
                     LinkLine(text: link)
                 }
-                HStack {
-                    Button {
-                        if let url = model.windowsAppURL { NSWorkspace.shared.activateFileViewerSelecting([url]) }
-                    } label: { Label("Показати .exe у Finder", systemImage: "folder") }
-                    Text("— якщо зручніше перенести файл іншим способом.").font(.caption).foregroundStyle(.secondary)
-                }
-                Text("Якщо macOS спитає про доступ до локальної мережі — дозвольте, інакше ПК не зможе зв'язатися з Mac.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
+            LinkLine(text: "https://github.com/\(Updater.repository)/releases/latest")
+            HStack {
+                if let url = model.windowsAppURL {
+                    Button {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    } label: { Label("Show .exe in Finder", systemImage: "folder") }
+                }
+                Spacer()
+            }
+            Text("If macOS asks whether Monitor Switcher may find devices on your local network, allow it — otherwise the Mac and the PC can't talk.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 }
@@ -206,8 +208,10 @@ private struct LinkLine: View {
     var body: some View {
         HStack {
             Text(text)
-                .font(.system(.title3, design: .monospaced).weight(.medium))
+                .font(.system(.body, design: .monospaced).weight(.medium))
                 .textSelection(.enabled)
+                .lineLimit(1)
+                .truncationMode(.middle)
             Spacer()
             Button {
                 NSPasteboard.general.clearContents()

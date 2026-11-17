@@ -7,7 +7,7 @@ struct OverviewPage: View {
     var body: some View {
         @Bindable var model = model
         VStack(alignment: .leading, spacing: 20) {
-            PageHeader(title: "Огляд", subtitle: "Кому зараз належать монітори")
+            PageHeader(title: "Overview", subtitle: "Who has the monitors right now")
 
             HStack(spacing: 16) {
                 ModeCard(mode: .mac)
@@ -15,16 +15,24 @@ struct OverviewPage: View {
             }
 
             if model.isSwitching {
-                BannerView(text: "Перемикаю монітори…", color: Palette.tint(model.mode), showsProgress: true)
+                BannerView(text: "Switching monitors…", color: Palette.tint(model.mode), showsProgress: true)
             } else if let note = model.pendingNote {
                 BannerView(text: note, symbol: "hourglass", color: .orange)
+            }
+
+            if let release = model.updateAvailable {
+                HStack {
+                    BannerView(text: "Version \(release.version) is available.", symbol: "arrow.down.circle.fill", color: .blue)
+                    Button("Update now") { model.installUpdate(release) }
+                }
             }
 
             Card {
                 Toggle(isOn: $model.config.automationEnabled) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text("Автоматичне перемикання").font(.headline)
+                        Text("Automatic switching").font(.headline)
                         Text(automationSubtitle).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .toggleStyle(.switch)
@@ -43,7 +51,7 @@ struct OverviewPage: View {
                             .background(Color.primary.opacity(0.05), in: Capsule())
                         }
                         Spacer()
-                        Button("Змінити") { page = .devices }
+                        Button("Change") { page = .devices }
                             .buttonStyle(.link)
                     }
                 }
@@ -51,9 +59,9 @@ struct OverviewPage: View {
 
             Card {
                 HStack {
-                    SectionTitle(title: "Монітори", symbol: "display.2")
+                    SectionTitle(title: "Monitors", symbol: "display.2")
                     Spacer()
-                    Button("Налаштувати") { page = .monitors }.buttonStyle(.link)
+                    Button("Configure") { page = .monitors }.buttonStyle(.link)
                 }
                 ArrangementMap()
                     .frame(height: 210)
@@ -61,13 +69,13 @@ struct OverviewPage: View {
 
             Card {
                 HStack {
-                    SectionTitle(title: "Останні події", symbol: "clock")
+                    SectionTitle(title: "Recent activity", symbol: "clock")
                     Spacer()
-                    Button("Увесь журнал") { page = .log }.buttonStyle(.link)
+                    Button("Show all") { page = .log }.buttonStyle(.link)
                 }
                 let recent = Array(model.log.suffix(6).reversed())
                 if recent.isEmpty {
-                    Text("Поки що нічого не відбувалося").foregroundStyle(.secondary)
+                    Text("Nothing has happened yet").foregroundStyle(.secondary)
                 } else {
                     VStack(alignment: .leading, spacing: 0) {
                         ForEach(recent) { LogRow(entry: $0) }
@@ -79,14 +87,12 @@ struct OverviewPage: View {
 
     private var automationSubtitle: String {
         let names = model.config.triggers.map(\.name)
-        if names.isEmpty { return "Оберіть клавіатуру й мишу на сторінці «Пристрої»" }
-        let joined = names.count > 1
-            ? names.dropLast().joined(separator: " або ") + " або " + names.last!
-            : names[0]
+        if names.isEmpty { return "Choose your keyboard and mouse on the Devices page." }
+        let joined = names.count > 1 ? names.dropLast().joined(separator: ", ") + " or " + names.last! : names[0]
         if model.config.pc != nil {
-            return "Клавіатура чи миша пішли з Mac і ви почали працювати на ПК — монітори йдуть на ПК. \(joined) підключилась до Mac — монітори одразу назад."
+            return "When your keyboard or mouse leaves the Mac and you start using the PC, the monitors follow. As soon as \(joined) reconnects to the Mac, they come back."
         }
-        return "Клавіатура й миша перейшли на ПК — монітори теж. \(joined) підключилась до Mac — монітори одразу назад."
+        return "When your keyboard and mouse move to the PC, the monitors follow. As soon as \(joined) reconnects to the Mac, they come back."
     }
 }
 
@@ -99,7 +105,7 @@ private struct ModeCard: View {
 
     var body: some View {
         Button {
-            if !isActive { model.switchTo(mode, reason: "вручну") }
+            if !isActive { model.switchTo(mode, reason: "manual") }
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .top) {
@@ -115,7 +121,7 @@ private struct ModeCard: View {
                 Spacer(minLength: 18)
                 Text(mode.title)
                     .font(.system(size: 30, weight: .bold, design: .rounded))
-                Text(isActive ? "Монітори зараз тут" : "Натисніть, щоб віддати монітори")
+                Text(isActive ? "Has the monitors" : "Click to hand the monitors over")
                     .font(.callout)
                     .opacity(0.85)
             }
@@ -150,7 +156,7 @@ struct ArrangementMap: View {
         GeometryReader { geo in
             let rules = model.config.monitors.filter { $0.frame != nil }
             if rules.isEmpty {
-                Text("Шукаю монітори…").foregroundStyle(.secondary)
+                Text("Looking for monitors…").foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 let bounds = rules.reduce(CGRect.null) { $0.union($1.frame!) }
@@ -183,8 +189,8 @@ private struct MonitorTile: View {
     private var detail: String {
         switch rule.method {
         case .ddc, .pcHelper: return InputSource.name(model.mode == .mac ? rule.macInput : rule.pcInput)
-        case .cutSignal: return model.mode == .mac ? "сигнал Mac" : "сигнал Mac вимкнено"
-        case .ignore: return "не перемикається"
+        case .cutSignal: return model.mode == .mac ? "Mac signal" : "Mac signal off"
+        case .ignore: return "not switched"
         }
     }
 

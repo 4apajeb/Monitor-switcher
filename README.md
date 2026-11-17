@@ -1,78 +1,110 @@
 # Monitor Switcher
 
-Перемикає спільні монітори між **Mac** і **ПК з Windows** разом з клавіатурою та мишею.
+Share your monitors between a **Mac** and a **Windows PC** and have them follow your keyboard and mouse.
 
-- Клавіатура/миша перейшли на ПК **і** ви почали працювати на ПК → монітори йдуть на ПК.
-- Клавіатура **або** миша підключилась до Mac → монітори одразу повертаються на Mac.
-- Клавіатура, що просто заснула, нічого не перемикає: про те, що ви сіли за ПК, повідомляє сама програма на ПК.
+- Move your keyboard and mouse to the PC and start using it → every monitor switches to the PC.
+- Move your keyboard **or** mouse back to the Mac → the monitors come back right away.
+- A keyboard that simply falls asleep never switches anything: the PC app tells the Mac when you actually start using the PC.
 
-Складається з двох програм, які працюють у парі через домашню мережу:
+It is two small apps that work as a pair over your local network:
 
 | | Mac | Windows |
 |---|---|---|
-| Де живе | Рядок меню (іконка моніторів) + вікно | Трей + вікно |
-| Автозапуск | Об'єкти входу macOS | Реєстр `HKCU\…\Run` |
-| Що робить | Стежить за Bluetooth-клавіатурою/мишею, вирішує, кому віддати монітори, перемикає по DDC/CI ті, до яких має доступ | Повідомляє Mac про дії на ПК, перемикає по DDC/CI монітори через кабель ПК |
+| Lives in | Menu bar (monitors icon) + a window | Notification area (tray) + a window |
+| Starts | At login | With Windows |
+| Job | Watches the Bluetooth keyboard/mouse, decides who gets the monitors, switches inputs over DDC/CI where it can | Reports when you use the PC, switches inputs over DDC/CI through the PC's own cables |
+| Updates | Automatically, from GitHub Releases | Automatically, from GitHub Releases |
 
-## Як перемикаються монітори
+## Requirements
 
-Для кожного монітора обирається спосіб (Mac → «Монітори»):
+- A Mac with **Apple silicon**, macOS 14 or later. DDC/CI uses Apple silicon's display APIs, so Intel Macs aren't supported.
+- Windows 10 or 11 with .NET Framework 4.8 (built in).
+- Monitors with **DDC/CI** enabled (most are; some have a DDC/CI switch in their menu).
+- A keyboard and/or mouse that switches between hosts and connects to the Mac over **Bluetooth**. The app sees when they disconnect from and reconnect to the Mac.
+- The Mac and the PC on the same local network.
 
-- **DDC з Mac** — Mac напряму надсилає монітору команду VCP `0x60` (Input Source).
-- **DDC через ПК** — Mac просить програму на ПК надіслати ту саму команду через кабель ПК. Для моніторів, підключених до Mac через перехідники USB‑C → HDMI, які не пропускають DDC.
-- **Вимкнути сигнал** — Mac вимикає свій вихід на монітор, і той сам шукає активне джерело (потрібен Auto Source Switch у меню монітора). Запасний варіант: на Samsung G50A / LF24T450F працював ненадійно.
-- **Не чіпати**.
+## Install
 
-Поточна конфігурація, перевірена на живому залізі:
+1. Download `MonitorSwitcher-macOS.zip` from the [latest release](../../releases/latest), unzip it and move **Monitor Switcher** to Applications.
+   The app is not notarized, so the first time right-click it and choose **Open** (or allow it under System Settings → Privacy & Security).
+2. On the PC, get `MonitorSwitcher.exe` from the same release, or open `http://<your Mac's IP>:47801` in a browser — the Mac app serves it too.
+   Run it. If Windows shows “Windows protected your PC”, choose **More info → Run anyway**. It installs itself into `%LOCALAPPDATA%\Programs\MonitorSwitcher`, adds a Start menu shortcut and starts with Windows.
+   Allow it on private networks if Windows Firewall asks.
+3. On the Mac: **PC → Find PCs → Pair**, then press **Allow** on the PC. If macOS asks whether Monitor Switcher may find devices on your local network, allow it.
 
-| Монітор | Mac | ПК | Спосіб |
-|---|---|---|---|
-| ASUS XG259QN | HDMI 1 (`17`) через перехідник USB‑C | DisplayPort (`15`) | DDC через ПК |
-| Samsung Odyssey G50A | HDMI (`5`) через HDMI‑порт Mac mini | DisplayPort (`15`) | DDC з Mac |
-| Samsung LF24T450F (вертикальний) | HDMI 2 (`6`) через перехідник USB‑C | HDMI 1 (`5`) | DDC через ПК |
+## Set up
 
-Samsung використовує власні коди входів, і вони різні в різних моделях. Samsung також показує різний PnP‑ідентифікатор на кожному вході (`SAM7095` на Mac, `SAM7094` на ПК), тому Mac зіставляє монітори ще й за назвою.
+**Devices.** On first launch the Mac app picks the Bluetooth keyboards and mice that are connected. Change the selection on the **Devices** page.
 
-## Збирання
+**Monitors.** Every external monitor gets a switching method and two input codes (one for the Mac, one for the PC):
 
-Потрібні Xcode Command Line Tools і .NET SDK (`brew install dotnet`) — Windows-програма збирається прямо на Mac.
-
-```bash
-scripts/build.sh            # build/Monitor Switcher.app і build/MonitorSwitcher.exe
-scripts/build.sh --install  # + встановити в /Applications і запустити
-```
-
-Windows-програма — .NET Framework 4.8 (є в кожній Windows 10/11), один файл `MonitorSwitcher.exe` ~230 КБ. Вона вбудована в Mac-застосунок: відкрийте на ПК у браузері `http://<IP Mac>:47801` і завантажте її звідти. Під час першого запуску програма копіює себе в `%LOCALAPPDATA%\Programs\MonitorSwitcher`, додає ярлик у меню «Пуск» і автозапуск.
-
-## Підключення ПК
-
-1. Запустіть Monitor Switcher на ПК (дозвольте доступ у брандмауері).
-2. На Mac: «ПК» → «Знайти ПК» → «Підключити».
-3. На ПК натисніть «Дозволити».
-
-## Мережа
-
-| Порт | Хто слухає | Навіщо |
+| Method | What happens | When to use it |
 |---|---|---|
-| TCP 47800 | ПК | `/status`, `/input`, `/mode`, `/log`… — команди від Mac (з ключем) |
-| UDP 47800 | ПК | Відповідь на пошук `MSW-DISCOVER` |
-| TCP 47801 | Mac | `/pc-input`, `/switch`, `/status` — від ПК (з ключем); `/` і `/download` — завантаження `.exe` |
+| **DDC from Mac** | The Mac sends the monitor an Input Source command (VCP `0x60`) | The Mac's connection passes DDC (most direct cables and the Mac mini's HDMI port) |
+| **DDC via PC** | The Mac asks the PC app to send the command over the PC's cable | The Mac's adapter or dock doesn't pass DDC (many USB-C → HDMI adapters don't) |
+| **Cut Mac signal** | The Mac turns its output to the monitor off; the monitor's auto source switch finds the PC | Last resort — many monitors handle it unreliably |
+| **Don't switch** | — | Monitors that only the Mac uses |
 
-Ключ створюється під час підключення, після підтвердження на ПК.
+New monitors default to **DDC from Mac** when the Mac gets a DDC reply, otherwise to **DDC via PC** (or **Cut Mac signal** if no PC is paired). The page tells you when the Mac can't reach a monitor over DDC but the PC can.
 
-## Командний рядок і швидкі команди
+**Input codes.** Standard MCCS codes are DisplayPort 1 = `15`, DisplayPort 2 = `16`, HDMI 1 = `17`, HDMI 2 = `18`, USB-C = `27`, but vendors don't always follow them (Samsung often uses `5` and `6`). To find the right ones, each monitor card shows the input it is showing right now:
+
+1. While the monitor shows the Mac, press **Use for Mac**.
+2. Switch the monitor to the PC with its own buttons, press **Refresh**, then **Use for PC**.
+
+Press **Test** to hand a monitor to the PC for five seconds and back.
+
+## How switching is decided
+
+**To the PC** — when a selected device has disconnected from the Mac *and* the PC app reports keyboard/mouse input on the PC. Without a paired PC, the Mac falls back to a heuristic: all selected devices left and the Mac was in use shortly before (so devices that fall asleep don't count).
+
+**Back to the Mac** — as soon as any selected device reconnects to the Mac.
+
+**Manually** — the Mac menu bar, the Windows tray (“Monitors → Mac / PC”), or shortcuts:
 
 ```bash
-"/Applications/Monitor Switcher.app/Contents/MacOS/MonitorSwitcher" --probe    # що бачить застосунок
-"/Applications/Monitor Switcher.app/Contents/MacOS/MonitorSwitcher" --restore  # аварійно повернути все на Mac
-open -g monitorswitcher://pc        # або mac, toggle, restore, auto-on, auto-off
+open -g monitorswitcher://pc      # also: mac, toggle, restore, auto-on, auto-off, update
 ```
 
-Журнали: `~/Library/Logs/MonitorSwitcher.log` (Mac), `%LOCALAPPDATA%\MonitorSwitcher\log.txt` (ПК). Налаштування Mac: `~/Library/Application Support/MonitorSwitcher/config.json`.
+## Updates
 
-## Як це влаштовано
+Every push to `main` that changes the code builds both apps on GitHub Actions and publishes a release (`.github/workflows/release.yml`). Both apps check the latest release every few hours and install it automatically; each also has an **Update** button and a switch to turn automatic installs off. Forks can point the apps at their own releases: `MSUpdateRepository` in `Packaging/Info.plist` and `UpdateRepository` in the Windows `.csproj`.
 
-- `Sources/MonitorSwitcher/Core` — DDC/CI через приватні `IOAVService` API Apple Silicon, вимкнення виходу (`CGSConfigureDisplayEnabled`), стеження за HID-пристроями через IOKit (без дозволу Input Monitoring), мережа.
-- `Sources/MonitorSwitcher/Model` — налаштування й логіка перемикання.
-- `Sources/MonitorSwitcher/UI` — SwiftUI-інтерфейс.
-- `windows/MonitorSwitcher.Win` — програма для Windows (WPF + трей, DDC через `dxva2.dll`).
+## Network
+
+| Port | Listens | For |
+|---|---|---|
+| TCP 47800 | PC | Commands from the Mac (`/status`, `/input`, `/mode`, `/log`, …) |
+| UDP 47800 | PC | Answers the Mac's `MSW-DISCOVER` broadcast |
+| TCP 47801 | Mac | Requests from the PC (`/pc-input`, `/switch`, `/status`) and the `.exe` download page |
+
+Pairing has to be approved on the PC and creates a random key; every other request must carry it. Everything stays on your local network.
+
+## Troubleshooting
+
+- **A monitor doesn't switch from the Mac** — the adapter or dock probably blocks DDC. Use **DDC via PC**, or connect that monitor to a port that passes DDC.
+- **The PC isn't found** — check that Monitor Switcher runs on the PC and Windows Firewall allows it on private networks, or pair by IP address.
+- **The Mac can't reach the PC after an update** — macOS may ask for local network access again; allow it.
+- **A monitor is stuck without the Mac's signal** — Settings → **Bring all monitors back**, or run `"/Applications/Monitor Switcher.app/Contents/MacOS/MonitorSwitcher" --restore`.
+- **See what the app sees** — `MonitorSwitcher --probe` lists displays, their DDC status and input devices.
+
+Logs: `~/Library/Logs/MonitorSwitcher.log` on the Mac, `%LOCALAPPDATA%\MonitorSwitcher\log.txt` on the PC (also readable from the Mac through the PC app).
+
+## Build from source
+
+You need the Xcode Command Line Tools and the .NET SDK (`brew install dotnet`) — the Windows app is built on the Mac too.
+
+```bash
+scripts/build.sh            # build/Monitor Switcher.app, build/MonitorSwitcher.exe, build/MonitorSwitcher-macOS.zip
+scripts/build.sh --install  # …and install into /Applications and launch
+```
+
+The version comes from the `VERSION` file (`major.minor`); release builds add the GitHub Actions run number.
+
+## Project layout
+
+- `Sources/MonitorSwitcher/Core` — DDC/CI over Apple silicon's `IOAVService`, turning display outputs on and off, watching HID devices through IOKit (no Input Monitoring permission needed), networking, self-update.
+- `Sources/MonitorSwitcher/Model` — settings and the switching logic.
+- `Sources/MonitorSwitcher/UI` — the SwiftUI interface.
+- `windows/MonitorSwitcher.Win` — the Windows app (WPF + tray icon, DDC/CI through `dxva2.dll`).
+- `scripts` — build script and icon generator.

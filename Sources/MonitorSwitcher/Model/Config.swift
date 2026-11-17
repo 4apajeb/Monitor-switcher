@@ -4,7 +4,7 @@ import Foundation
 enum Mode: String, Codable {
     case mac, pc
 
-    var title: String { self == .mac ? "Mac" : "ПК" }
+    var title: String { self == .mac ? "Mac" : "PC" }
     var symbol: String { self == .mac ? "macmini" : "pc" }
 }
 
@@ -15,10 +15,10 @@ enum SwitchMethod: String, Codable, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .ddc: return "DDC з Mac"
-        case .pcHelper: return "DDC через ПК"
-        case .cutSignal: return "Вимкнути сигнал"
-        case .ignore: return "Не чіпати"
+        case .ddc: return "DDC from Mac"
+        case .pcHelper: return "DDC via PC"
+        case .cutSignal: return "Cut Mac signal"
+        case .ignore: return "Don't switch"
         }
     }
 
@@ -34,31 +34,30 @@ enum SwitchMethod: String, Codable, CaseIterable, Identifiable {
     var explanation: String {
         switch self {
         case .ddc:
-            return "Mac напряму каже монітору, який вхід увімкнути. Працює в обидва боки, навіть коли монітор показує ПК."
+            return "The Mac tells the monitor which input to show over DDC/CI. Works both ways, even while the monitor shows the PC."
         case .pcHelper:
-            return "Mac просить Monitor Switcher на ПК перемкнути вхід цього монітора по DDC через кабель ПК. Підходить, коли перехідник Mac не пропускає DDC."
+            return "The Mac asks Monitor Switcher on the PC to change this monitor's input over the PC's own cable. Use it when the Mac's adapter doesn't pass DDC."
         case .cutSignal:
-            return "Mac вимикає свій сигнал на цей монітор, і той сам переходить на активний вхід ПК. Коли сигнал Mac повертається, монітор перемикається назад. Потрібна функція Auto Source Switch у меню монітора."
+            return "The Mac turns off its output to this monitor so the monitor falls back to the PC on its own, and turns it back on to return. Needs the monitor's auto source switching; many monitors handle this unreliably."
         case .ignore:
-            return "Монітор не перемикається автоматично."
+            return "This monitor is never switched automatically."
         }
     }
 
     var usesInputs: Bool { self == .ddc || self == .pcHelper }
 }
 
+/// MCCS input source codes (VCP 0x60). Some vendors use their own codes — Samsung, for
+/// example, often uses 5 / 6 — so any value can be entered as a custom code.
 enum InputSource {
     static let presets: [(value: UInt16, name: String)] = [
         (15, "DisplayPort 1"), (16, "DisplayPort 2"),
         (17, "HDMI 1"), (18, "HDMI 2"), (27, "USB-C"),
-        // Samsung uses its own codes, and they differ per model (G50A: 5 = HDMI, 6 = DP;
-        // LF24T450F: 5 = HDMI 1, 6 = HDMI 2).
-        (5, "Samsung · код 5"), (6, "Samsung · код 6"),
-        (3, "DVI 1"), (1, "VGA 1"),
+        (3, "DVI 1"), (4, "DVI 2"), (1, "VGA 1"),
     ]
 
     static func name(_ value: UInt16) -> String {
-        presets.first { $0.value == value }?.name ?? "Код \(value)"
+        presets.first { $0.value == value }?.name ?? "Code \(value)"
     }
 }
 
@@ -74,8 +73,8 @@ struct MonitorRule: Codable, Identifiable, Equatable {
     var frame: CGRect?
     /// EDID PnP id (e.g. AUS25BA) as the Mac sees it.
     var pnpID: String?
-    /// The id the PC app uses for this monitor. Samsungs report a different product code on
-    /// each input (SAM7095 on the Mac's HDMI, SAM7094 on the PC's), so it is matched by name too.
+    /// The id the PC app uses for this monitor. Some monitors report a different product code
+    /// on each input, so it is also matched by name.
     var pcID: String?
 
     var id: String { uuid }
@@ -102,7 +101,7 @@ struct TriggerDevice: Codable, Hashable, Identifiable {
 enum TriggerRule: String, Codable, CaseIterable, Identifiable {
     case all, any
     var id: String { rawValue }
-    var title: String { self == .all ? "Усі вибрані відключились" : "Будь-який відключився" }
+    var title: String { self == .all ? "All selected devices left" : "Any selected device left" }
 }
 
 /// A display whose signal the app turned off — remembered on disk so it can always be restored.
@@ -117,8 +116,8 @@ struct AppConfig: Codable, Equatable {
     var triggers: [TriggerDevice] = []
     var triggerRule: TriggerRule = .all
     var automationEnabled = true
-    /// Only switch to the PC if the Mac was used within `activityWindow` seconds before the
-    /// devices disconnected. Keyboards that fall asleep after inactivity won't trigger a switch.
+    /// Without the PC app: only switch to the PC if the Mac was used within `activityWindow`
+    /// seconds before the devices disconnected, so keyboards that fall asleep don't switch.
     var activityGuard = true
     var activityWindow: Double = 30
     var disconnectDelay: Double = 1.5
@@ -127,6 +126,9 @@ struct AppConfig: Codable, Equatable {
     var hasCompletedSetup = false
     var cutDisplays: [CutDisplay] = []
     var pc: PairedPC?
+    /// Who owned the monitors when the app last ran (survives restarts and updates).
+    var lastMode: Mode = .mac
+    var autoUpdate = true
 
     init() {}
 
@@ -145,6 +147,8 @@ struct AppConfig: Codable, Equatable {
         hasCompletedSetup = try c.decodeIfPresent(Bool.self, forKey: .hasCompletedSetup) ?? d.hasCompletedSetup
         cutDisplays = try c.decodeIfPresent([CutDisplay].self, forKey: .cutDisplays) ?? d.cutDisplays
         pc = try c.decodeIfPresent(PairedPC.self, forKey: .pc)
+        lastMode = try c.decodeIfPresent(Mode.self, forKey: .lastMode) ?? d.lastMode
+        autoUpdate = try c.decodeIfPresent(Bool.self, forKey: .autoUpdate) ?? d.autoUpdate
     }
 }
 

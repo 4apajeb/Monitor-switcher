@@ -15,7 +15,8 @@ namespace MonitorSwitcher
         public static void Main(string[] args)
         {
             // Started from Downloads: install into %LOCALAPPDATA%\Programs and run that copy.
-            if (!args.Contains("--portable") && Installer.InstallAndRelaunch()) return;
+            // An update (started by the old version) installs quietly into the tray.
+            if (!args.Contains("--portable") && Installer.InstallAndRelaunch(background: args.Contains("--update"))) return;
 
             bool createdNew;
             Mutex mutex = null;
@@ -68,7 +69,7 @@ namespace MonitorSwitcher
             base.OnStartup(e);
             DispatcherUnhandledException += (s, ex) =>
             {
-                core?.Log("Помилка: " + ex.Exception.Message);
+                core?.Log("Error: " + ex.Exception.Message);
                 ex.Handled = true;
             };
 

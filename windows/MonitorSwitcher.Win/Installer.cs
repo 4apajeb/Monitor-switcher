@@ -28,7 +28,7 @@ namespace MonitorSwitcher
         /// When started from Downloads (or anywhere else), install/update the copy in Programs,
         /// start it and return true so this process exits.
         /// </summary>
-        public static bool InstallAndRelaunch()
+        public static bool InstallAndRelaunch(bool background)
         {
             if (IsInstalledCopy) return false;
             try
@@ -56,7 +56,7 @@ namespace MonitorSwitcher
                 if (last != null) throw last;
 
                 CreateShortcut();
-                Process.Start(new ProcessStartInfo(InstalledExe, "--installed") { UseShellExecute = true });
+                Process.Start(new ProcessStartInfo(InstalledExe, background ? "--installed --background" : "--installed") { UseShellExecute = true });
                 return true;
             }
             catch

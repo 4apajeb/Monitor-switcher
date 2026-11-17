@@ -119,7 +119,7 @@
             <TextBlock x:Name="PcCheck" Style="{StaticResource Glyph}" Text="&#xE73E;" FontSize="20"
                        HorizontalAlignment="Right" VerticalAlignment="Top"/>
             <StackPanel VerticalAlignment="Bottom">
-              <TextBlock Text="ПК" FontSize="30" FontWeight="Bold"/>
+              <TextBlock Text="PC" FontSize="30" FontWeight="Bold"/>
               <TextBlock x:Name="PcCardSub" Opacity="0.85" TextWrapping="Wrap"/>
             </StackPanel>
           </Grid>
@@ -129,15 +129,15 @@
       <!-- Mac connection -->
       <Border Style="{StaticResource Card}">
         <StackPanel>
-          <TextBlock Style="{StaticResource Title}" Text="Зв'язок з Mac"/>
+          <TextBlock Style="{StaticResource Title}" Text="Mac connection"/>
           <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
             <Ellipse x:Name="MacDot" Width="10" Height="10" VerticalAlignment="Center"/>
             <TextBlock x:Name="MacText" Margin="10,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
           </StackPanel>
           <TextBlock x:Name="MacHint" Style="{StaticResource Sub}" Margin="0,10,0,0"/>
           <StackPanel x:Name="MacButtons" Orientation="Horizontal" Margin="0,14,0,0">
-            <Button x:Name="CheckMacBtn" Style="{StaticResource Btn}" Content="Перевірити зв'язок"/>
-            <Button x:Name="UnpairBtn" Style="{StaticResource Btn}" Content="Від'єднати Mac"/>
+            <Button x:Name="CheckMacBtn" Style="{StaticResource Btn}" Content="Check connection"/>
+            <Button x:Name="UnpairBtn" Style="{StaticResource Btn}" Content="Unpair Mac"/>
           </StackPanel>
         </StackPanel>
       </Border>
@@ -146,10 +146,10 @@
       <Border Style="{StaticResource Card}">
         <StackPanel>
           <DockPanel>
-            <Button x:Name="RefreshBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="0" Content="Оновити"/>
+            <Button x:Name="RefreshBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="0" Content="Refresh"/>
             <StackPanel VerticalAlignment="Center">
-              <TextBlock Style="{StaticResource Title}" Text="Монітори цього ПК"/>
-              <TextBlock Style="{StaticResource Sub}" Text="Їхні входи Mac перемикає через цей ПК по DDC/CI."/>
+              <TextBlock Style="{StaticResource Title}" Text="This PC's monitors"/>
+              <TextBlock Style="{StaticResource Sub}" Text="The Mac can switch their inputs through this PC over DDC/CI."/>
             </StackPanel>
           </DockPanel>
           <ItemsControl x:Name="MonitorList" Margin="0,14,0,0">
@@ -168,22 +168,37 @@
               </DataTemplate>
             </ItemsControl.ItemTemplate>
           </ItemsControl>
-          <TextBlock x:Name="NoMonitors" Style="{StaticResource Sub}" Text="Шукаю монітори…"/>
+          <TextBlock x:Name="NoMonitors" Style="{StaticResource Sub}" Text="Looking for monitors…"/>
+        </StackPanel>
+      </Border>
+
+      <!-- Updates -->
+      <Border Style="{StaticResource Card}">
+        <StackPanel>
+          <DockPanel>
+            <Button x:Name="UpdateBtn" DockPanel.Dock="Right" Style="{StaticResource Btn}" Margin="0" Content="Check now" VerticalAlignment="Center"/>
+            <StackPanel VerticalAlignment="Center">
+              <TextBlock Style="{StaticResource Title}" Text="Updates"/>
+              <TextBlock x:Name="VersionText" Margin="0,4,0,0"/>
+              <TextBlock x:Name="UpdateText" Style="{StaticResource Sub}"/>
+            </StackPanel>
+          </DockPanel>
+          <CheckBox x:Name="AutoUpdateBox" Content="Install updates automatically"/>
         </StackPanel>
       </Border>
 
       <!-- Settings -->
       <Border Style="{StaticResource Card}">
         <StackPanel>
-          <TextBlock Style="{StaticResource Title}" Text="Налаштування"/>
-          <CheckBox x:Name="AutostartBox" Content="Запускати разом з Windows (у треї, без вікна)"/>
-          <CheckBox x:Name="InputBox" Content="Забирати монітори на ПК, щойно я користуюсь його клавіатурою чи мишею"/>
+          <TextBlock Style="{StaticResource Title}" Text="Settings"/>
+          <CheckBox x:Name="AutostartBox" Content="Start with Windows (in the tray, no window)"/>
+          <CheckBox x:Name="InputBox" Content="Take the monitors when I use this PC's keyboard or mouse"/>
           <TextBlock Style="{StaticResource Sub}" Margin="26,4,0,0"
-                     Text="Mac перемикає монітори, лише якщо його клавіатура чи миша вже відключились від нього. Тому клавіатура, що просто заснула, нічого не перемкне."/>
+                     Text="The Mac only switches if its keyboard or mouse has already left it, so a keyboard that just fell asleep never switches anything."/>
           <TextBlock x:Name="NetInfo" Style="{StaticResource Sub}" Margin="0,14,0,0"/>
           <StackPanel Orientation="Horizontal" Margin="0,14,0,0">
-            <Button x:Name="OpenLogBtn" Style="{StaticResource Btn}" Content="Відкрити папку журналу"/>
-            <Button x:Name="UninstallBtn" Style="{StaticResource Btn}" Content="Видалити з цього ПК"/>
+            <Button x:Name="OpenLogBtn" Style="{StaticResource Btn}" Content="Open log folder"/>
+            <Button x:Name="UninstallBtn" Style="{StaticResource Btn}" Content="Remove from this PC"/>
           </StackPanel>
         </StackPanel>
       </Border>
@@ -191,7 +206,7 @@
       <!-- Log -->
       <Border Style="{StaticResource Card}">
         <StackPanel>
-          <TextBlock Style="{StaticResource Title}" Text="Журнал"/>
+          <TextBlock Style="{StaticResource Title}" Text="Activity"/>
           <TextBox x:Name="LogBox" IsReadOnly="True" Background="Transparent" BorderThickness="0"
                    Foreground="{SUB}" FontFamily="Cascadia Mono, Consolas" FontSize="12" Height="200"
                    VerticalScrollBarVisibility="Auto" TextWrapping="Wrap" Margin="0,10,0,0"/>

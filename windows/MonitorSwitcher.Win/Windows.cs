@@ -137,15 +137,16 @@ namespace MonitorSwitcher
             Find<Button>("CheckMacBtn").Click += (s, e) => core.CheckMacAsync();
             Find<Button>("UnpairBtn").Click += (s, e) =>
             {
-                if (MessageBox.Show(this, "Від'єднати Mac «" + core.Settings.MacName + "»? Щоб підключити знову, на Mac потрібно буде знову знайти цей ПК.",
+                if (MessageBox.Show(this, "Unpair the Mac \u201c" + core.Settings.MacName + "\u201d? To pair again, find this PC from the Mac.",
                         "Monitor Switcher", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes)
                     core.Unpair();
             };
             Find<Button>("RefreshBtn").Click += (s, e) => core.RefreshMonitorsAsync();
+            Find<Button>("UpdateBtn").Click += (s, e) => { if (core.UpdateAvailable != null) core.InstallUpdate(); else core.CheckForUpdatesAsync(); };
             Find<Button>("OpenLogBtn").Click += (s, e) => { try { Process.Start("explorer.exe", "\"" + Core.DataDir + "\""); } catch { } };
             Find<Button>("UninstallBtn").Click += (s, e) =>
             {
-                if (MessageBox.Show(this, "Видалити Monitor Switcher з цього ПК? Автозапуск, ярлик і налаштування буде прибрано.",
+                if (MessageBox.Show(this, "Remove Monitor Switcher from this PC? Autostart, the Start menu shortcut and settings will be removed.",
                         "Monitor Switcher", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
                 core.Unpair();
                 Installer.Uninstall();
@@ -155,6 +156,9 @@ namespace MonitorSwitcher
             var autostart = Find<CheckBox>("AutostartBox");
             autostart.Checked += (s, e) => SetAutostart(true);
             autostart.Unchecked += (s, e) => SetAutostart(false);
+            var autoUpdate = Find<CheckBox>("AutoUpdateBox");
+            autoUpdate.Checked += (s, e) => { if (!updatingChecks) { core.Settings.AutoUpdate = true; core.SaveSettings(); } };
+            autoUpdate.Unchecked += (s, e) => { if (!updatingChecks) { core.Settings.AutoUpdate = false; core.SaveSettings(); } };
             var input = Find<CheckBox>("InputBox");
             input.Checked += (s, e) => { if (!updatingChecks) { core.Settings.SwitchOnPcInput = true; core.SaveSettings(); } };
             input.Unchecked += (s, e) => { if (!updatingChecks) { core.Settings.SwitchOnPcInput = false; core.SaveSettings(); } };
@@ -173,7 +177,7 @@ namespace MonitorSwitcher
         {
             if (updatingChecks) return;
             core.Settings.Autostart = enabled;
-            try { Installer.SetAutostart(enabled); } catch (Exception ex) { core.Log("Автозапуск: " + ex.Message); }
+            try { Installer.SetAutostart(enabled); } catch (Exception ex) { core.Log("Autostart: " + ex.Message); }
             core.SaveSettings();
         }
 
@@ -189,7 +193,7 @@ namespace MonitorSwitcher
             string mode = core.Mode;
 
             Find<TextBlock>("HeaderStatus").Text =
-                (mode == "pc" ? "Монітори зараз у цього ПК" : mode == "mac" ? "Монітори зараз у Mac" : "Невідомо, кому зараз належать монітори")
+                (mode == "pc" ? "This PC has the monitors" : mode == "mac" ? "The Mac has the monitors" : "Not sure who has the monitors")
                 + " · " + Environment.MachineName;
 
             StyleModeCard("MacCard", "MacCheck", "MacCardSub", "mac", mode, s.IsPaired);
@@ -201,14 +205,14 @@ namespace MonitorSwitcher
             if (!s.IsPaired)
             {
                 dot.Fill = Brushes.Orange;
-                text.Text = "Mac ще не підключено";
-                hint.Text = "На Mac відкрийте Monitor Switcher → «ПК» → «Знайти ПК» і підтвердіть підключення тут. " +
-                            "Якщо Windows запитає дозвіл брандмауера — дозвольте доступ у приватних мережах.";
+                text.Text = "No Mac paired yet";
+                hint.Text = "On the Mac, open Monitor Switcher → PC → Find PCs and confirm the request here. " +
+                            "If Windows Firewall asks, allow access on private networks.";
             }
             else
             {
                 dot.Fill = core.MacOnline ? Brushes.LimeGreen : Brushes.IndianRed;
-                text.Text = (s.MacName ?? "Mac") + " · " + s.MacHost + (core.MacOnline ? " · на зв'язку" : " · не відповідає");
+                text.Text = (s.MacName ?? "Mac") + " · " + s.MacHost + (core.MacOnline ? " · online" : " · not answering");
                 hint.Text = core.MacOnline ? "" : (core.MacError ?? "");
             }
             Find<FrameworkElement>("MacButtons").Visibility = s.IsPaired ? Visibility.Visible : Visibility.Collapsed;
@@ -220,11 +224,17 @@ namespace MonitorSwitcher
             updatingChecks = true;
             Find<CheckBox>("AutostartBox").IsChecked = s.Autostart;
             Find<CheckBox>("InputBox").IsChecked = s.SwitchOnPcInput;
+            Find<CheckBox>("AutoUpdateBox").IsChecked = s.AutoUpdate;
             updatingChecks = false;
 
+            Find<TextBlock>("VersionText").Text = "Version " + Core.Version;
+            Find<TextBlock>("UpdateText").Text = core.UpdateStatus.Length > 0 ? core.UpdateStatus : "Checks GitHub for new versions automatically";
+            var updateBtn = Find<Button>("UpdateBtn");
+            updateBtn.Content = core.Updating ? "Installing…" : core.UpdateAvailable != null ? "Update to " + core.UpdateAvailable.Version : "Check now";
+            updateBtn.IsEnabled = !core.Updating;
             var addresses = Core.LocalAddresses();
-            Find<TextBlock>("NetInfo").Text = "Цей ПК: " + Environment.MachineName +
-                (addresses.Count > 0 ? " · " + string.Join(", ", addresses) : "") + " · порт " + Core.PcPort + " · версія " + Core.Version;
+            Find<TextBlock>("NetInfo").Text = "This PC: " + Environment.MachineName +
+                (addresses.Count > 0 ? " · " + string.Join(", ", addresses) : "") + " · port " + Core.PcPort + " · version " + Core.Version;
         }
 
         void StyleModeCard(string cardName, string checkName, string subName, string cardMode, string mode, bool paired)
@@ -237,7 +247,7 @@ namespace MonitorSwitcher
             card.IsEnabled = paired && !core.Busy;
             card.Opacity = paired ? 1 : 0.6;
             Find<TextBlock>(checkName).Visibility = active ? Visibility.Visible : Visibility.Hidden;
-            Find<TextBlock>(subName).Text = active ? "Монітори зараз тут" : core.Busy ? "Перемикаю…" : "Натисніть, щоб віддати монітори";
+            Find<TextBlock>(subName).Text = active ? "Has the monitors" : core.Busy ? "Switching…" : "Click to hand the monitors over";
         }
     }
 
@@ -259,7 +269,7 @@ namespace MonitorSwitcher
             var root = Theme.Load("PairDialog.xaml");
             Content = root;
             ((TextBlock)root.FindName("Message")).Text =
-                "Mac «" + macName + "» (" + macHost + ") хоче перемикати монітори через цей ПК. Дозволяйте, лише якщо це ваш Mac.";
+                "The Mac \u201c" + macName + "\u201d (" + macHost + ") wants to switch monitors through this PC. Allow it only if it's your Mac.";
             ((Button)root.FindName("AllowBtn")).Click += (s, e) => { approved = true; Close(); };
             ((Button)root.FindName("DenyBtn")).Click += (s, e) => Close();
 

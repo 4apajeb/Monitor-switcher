@@ -41,6 +41,15 @@ struct DeviceRow: Identifiable {
     var id: String { key }
 }
 
+enum UpdateState: Equatable {
+    case idle
+    case checking
+    case upToDate
+    case available(ReleaseInfo)
+    case installing(ReleaseInfo)
+    case failed(String)
+}
+
 @Observable
 final class AppModel {
     static let shared = AppModel()
@@ -49,7 +58,9 @@ final class AppModel {
         didSet { if config != oldValue { ConfigStore.save(config) } }
     }
 
-    private(set) var mode: Mode = .mac
+    private(set) var mode: Mode = .mac {
+        didSet { if config.lastMode != mode { config.lastMode = mode } }
+    }
     private(set) var isSwitching = false
     private(set) var devices: [String: HIDDevice] = [:]
     private(set) var displays: [DisplayState] = []
@@ -71,8 +82,13 @@ final class AppModel {
     private(set) var serverError: String?
     let macName = Host.current().localizedName ?? "Mac"
 
+    // Updates
+    private(set) var updateState: UpdateState = .idle
+    private(set) var lastUpdateCheck: Date?
+    let appVersion = AppVersion.current
+
     @ObservationIgnored private let server = MacServer()
-    @ObservationIgnored private var pcPollTimer: Timer?
+    @ObservationIgnored private var timers: [Timer] = []
     @ObservationIgnored private var lastIgnoredPCInputLog = Date.distantPast
     @ObservationIgnored private let hid = HIDMonitor()
     @ObservationIgnored private let worker = DispatchQueue(label: "MonitorSwitcher.worker", qos: .userInitiated)
@@ -102,10 +118,10 @@ final class AppModel {
 
     // MARK: - Lifecycle
 
-    func start() {
+    func start(afterUpdate: Bool = false) {
         guard !started else { return }
         started = true
-        addLog(.info, "Monitor Switcher запущено")
+        addLog(.info, afterUpdate ? "Updated to Monitor Switcher \(appVersion)" : "Monitor Switcher \(appVersion) started")
 
         hid.onChange = { [weak self] change in self?.handle(change) }
         hid.start()
@@ -119,14 +135,14 @@ final class AppModel {
             }
         }
 
-        // Displays the app turned off before a quit/crash are restored as soon as we know
-        // the user is at the Mac; otherwise we are still in PC mode.
-        if !config.cutDisplays.isEmpty {
-            if anyTriggerConnected || config.triggers.isEmpty {
-                switchTo(.mac, reason: "після перезапуску знайдено монітори без сигналу Mac")
+        // Pick up where we left off (restart, update, reboot). If the keyboard or mouse is here,
+        // the user is at the Mac, so the monitors come back; otherwise they stay with the PC.
+        if config.lastMode == .pc || !config.cutDisplays.isEmpty {
+            if config.automationEnabled && (anyTriggerConnected || config.triggers.isEmpty) {
+                switchTo(.mac, reason: "the keyboard/mouse is at the Mac after a restart")
             } else {
                 mode = .pc
-                addLog(.info, "Продовжую в режимі ПК")
+                addLog(.info, "Continuing with the monitors on the PC")
             }
         }
 
@@ -135,8 +151,12 @@ final class AppModel {
         refreshLoginItem()
         startServer()
         refreshPC()
-        pcPollTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refreshPC() }
-        if config.launchAtLoginWanted, loginItemStatus == .notRegistered {
+        timers.append(Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in self?.refreshPC() })
+        timers.append(Timer.scheduledTimer(withTimeInterval: 6 * 3600, repeats: true) { [weak self] _ in
+            self?.checkForUpdates(userInitiated: false)
+        })
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in self?.checkForUpdates(userInitiated: false) }
+        if config.launchAtLoginWanted, loginItemStatus != .enabled {
             setLaunchAtLogin(true, quiet: true)
         }
     }
@@ -149,7 +169,7 @@ final class AppModel {
                 .sorted { kind(of: $0.name) == .keyboard && kind(of: $1.name) != .keyboard }
             config.triggers = picks.map { TriggerDevice(key: $0.key, name: $0.name) }
             if !picks.isEmpty {
-                addLog(.info, "Тригери: " + picks.map(\.name).joined(separator: ", "))
+                addLog(.info, "Watching: " + picks.map(\.name).joined(separator: ", "))
             }
         }
         config.hasCompletedSetup = true
@@ -161,13 +181,13 @@ final class AppModel {
             guard let self else { return }
             systemAsleep = true
             cancelPendingSwitch()
-            addLog(.info, "Mac засинає")
+            addLog(.info, "Mac is going to sleep")
         }
         center.addObserver(forName: NSWorkspace.didWakeNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
             systemAsleep = false
             lastWake = Date()
-            addLog(.info, "Mac прокинувся")
+            addLog(.info, "Mac woke up")
             scheduleDisplayRefresh(after: 3)
         }
 
@@ -183,7 +203,7 @@ final class AppModel {
     func kind(of name: String) -> DeviceKind {
         if let kind = deviceKinds[name] { return kind }
         let lower = name.lowercased()
-        if lower.contains("mouse") { return .mouse }
+        if lower.contains("mouse") || lower.contains("trackpad") { return .mouse }
         if lower.contains("keyboard") || lower.contains("keys") { return .keyboard }
         return .other
     }
@@ -223,17 +243,17 @@ final class AppModel {
         switch change {
         case let .connected(device):
             guard isTrigger(device.key) else { return }
-            addLog(.device, "\(device.name) підключилась до Mac")
+            addLog(.device, "\(device.name) connected to the Mac")
             cancelPendingSwitch()
             guard config.automationEnabled else { return }
             if mode == .pc || (!config.cutDisplays.isEmpty && !isSwitching) {
-                switchTo(.mac, reason: "\(device.name) знову з Mac")
+                switchTo(.mac, reason: "\(device.name) is back on the Mac")
             }
 
         case let .disconnected(device):
             guard isTrigger(device.key) else { return }
             let idle = SystemInfo.idleSeconds()
-            addLog(.device, "\(device.name) відключилась від Mac (без дій \(formatSeconds(idle)))")
+            addLog(.device, "\(device.name) disconnected from the Mac (idle \(formatSeconds(idle)))")
             guard config.automationEnabled, mode == .mac else { return }
             cancelPendingSwitch()
 
@@ -246,9 +266,9 @@ final class AppModel {
                         guard let self, self.mode == .mac else { return }
                         self.pcOnline = reachable
                         if reachable {
-                            self.addLog(.info, "Чекаю, поки ви почнете працювати на ПК")
+                            self.addLog(.info, "Waiting for you to start using the PC")
                         } else {
-                            self.addLog(.warning, "ПК не відповідає — вирішую сам, без нього")
+                            self.addLog(.warning, "The PC isn't answering — deciding without it")
                             self.scheduleHeuristicSwitch(after: device, idle: idle)
                         }
                     }
@@ -261,7 +281,7 @@ final class AppModel {
 
     private func scheduleHeuristicSwitch(after device: HIDDevice, idle: TimeInterval) {
         cancelPendingSwitch()
-        pendingNote = "\(device.name) відключилась — перевіряю…"
+        pendingNote = "\(device.name) disconnected — checking…"
         let work = DispatchWorkItem { [weak self] in self?.decideSwitchToPC(after: device, idle: idle) }
         pendingSwitch = work
         DispatchQueue.main.asyncAfter(deadline: .now() + config.disconnectDelay, execute: work)
@@ -274,11 +294,11 @@ final class AppModel {
         guard leftMac else {
             if Date().timeIntervalSince(lastIgnoredPCInputLog) > 60 {
                 lastIgnoredPCInputLog = Date()
-                addLog(.info, "Хтось користується ПК, але клавіатура й миша ще з Mac — не перемикаю")
+                addLog(.info, "Someone is using the PC, but the keyboard and mouse are still on the Mac — not switching")
             }
             return false
         }
-        switchTo(.pc, reason: "ви почали працювати на ПК")
+        switchTo(.pc, reason: "you started using the PC")
         return true
     }
 
@@ -293,19 +313,19 @@ final class AppModel {
         pendingNote = nil
         guard config.automationEnabled, mode == .mac else { return }
         if systemAsleep || Date().timeIntervalSince(lastWake) < 20 {
-            addLog(.info, "Mac засинав або щойно прокинувся — не перемикаю")
+            addLog(.info, "The Mac was asleep or just woke up — not switching")
             return
         }
         let stillHere = config.triggers.filter { devices[$0.key] != nil }
         if config.triggerRule == .all, !stillHere.isEmpty {
-            addLog(.info, "Чекаю, доки відключиться й " + stillHere.map(\.name).joined(separator: ", "))
+            addLog(.info, "Waiting for " + stillHere.map(\.name).joined(separator: ", ") + " to leave too")
             return
         }
         if config.activityGuard, idle > config.activityWindow {
-            addLog(.info, "Схоже, \(device.name) просто заснула (Mac без дій \(formatSeconds(idle))) — не перемикаю")
+            addLog(.info, "\(device.name) probably fell asleep (Mac idle \(formatSeconds(idle))) — not switching")
             return
         }
-        switchTo(.pc, reason: "\(device.name) перейшла на ПК")
+        switchTo(.pc, reason: "\(device.name) moved to the PC")
     }
 
     // MARK: - Displays
@@ -343,6 +363,13 @@ final class AppModel {
 
     func isCut(_ rule: MonitorRule) -> Bool { config.cutDisplays.contains { $0.uuid == rule.uuid } }
 
+    /// The input this monitor shows right now, read over whichever DDC path works.
+    func currentInput(of rule: MonitorRule) -> (value: UInt16, source: String)? {
+        if case let .works(input)? = display(for: rule)?.ddc { return (input, "Mac") }
+        if let monitor = pcMonitor(for: rule), monitor.ddc, monitor.input >= 0 { return (UInt16(monitor.input), "PC") }
+        return nil
+    }
+
     private func syncRules() {
         var monitors = config.monitors
         for state in displays {
@@ -357,12 +384,12 @@ final class AppModel {
                     rule = MonitorRule(uuid: state.uuid, name: state.name, method: .ddc, macInput: input,
                                        pcInput: input == 15 ? 17 : 15, displayID: state.displayID, frame: state.frame)
                 } else {
-                    rule = MonitorRule(uuid: state.uuid, name: state.name, method: .cutSignal, macInput: 18,
-                                       pcInput: 15, displayID: state.displayID, frame: state.frame)
+                    rule = MonitorRule(uuid: state.uuid, name: state.name, method: config.pc == nil ? .cutSignal : .pcHelper,
+                                       macInput: 17, pcInput: 15, displayID: state.displayID, frame: state.frame)
                 }
                 rule.pnpID = state.pnpID
                 monitors.append(rule)
-                addLog(.info, "Новий монітор: \(state.name) — спосіб «\(rule.method.title)»")
+                addLog(.info, "New monitor: \(state.name) — \(rule.method.title)")
             }
         }
         if monitors != config.monitors { config.monitors = monitors }
@@ -374,7 +401,7 @@ final class AppModel {
 
     // MARK: - Switching
 
-    func toggle() { switchTo(mode == .mac ? .pc : .mac, reason: "вручну") }
+    func toggle() { switchTo(mode == .mac ? .pc : .mac, reason: "manual") }
 
     func switchTo(_ target: Mode, reason: String) {
         cancelPendingSwitch()
@@ -382,7 +409,7 @@ final class AppModel {
         let pc = config.pc
         mode = target
         isSwitching = true
-        addLog(target == .pc ? .info : .info, "Перемикаю на \(target.title): \(reason)")
+        addLog(.info, "Switching to the \(target.title): \(reason)")
 
         var toCut: [CutDisplay] = []
         var toRestore: [CutDisplay] = []
@@ -422,9 +449,9 @@ final class AppModel {
                 restoreFailures = Set(failures.keys)
                 for c in toRestore {
                     if let err = failures[c.displayID] {
-                        notes.append((Date(), .error, "\(c.name): не вдалося ввімкнути сигнал (код \(err.rawValue))"))
+                        notes.append((Date(), .error, "\(c.name): couldn't turn the Mac signal back on (error \(err.rawValue))"))
                     } else {
-                        notes.append((Date(), .success, "\(c.name): сигнал Mac увімкнено" + Self.elapsed(since: started)))
+                        notes.append((Date(), .success, "\(c.name): Mac signal on" + Self.elapsed(since: started)))
                     }
                 }
             }
@@ -435,9 +462,9 @@ final class AppModel {
                 cutFailures = Set(failures.keys)
                 for c in toCut {
                     if let err = failures[c.displayID] {
-                        notes.append((Date(), .error, "\(c.name): не вдалося вимкнути сигнал (код \(err.rawValue))"))
+                        notes.append((Date(), .error, "\(c.name): couldn't turn the Mac signal off (error \(err.rawValue))"))
                     } else {
-                        notes.append((Date(), .success, "\(c.name): сигнал Mac вимкнено" + Self.elapsed(since: started)))
+                        notes.append((Date(), .success, "\(c.name): Mac signal off" + Self.elapsed(since: started)))
                     }
                 }
             }
@@ -454,6 +481,7 @@ final class AppModel {
                 }
                 self.isSwitching = false
                 self.scheduleDisplayRefresh(after: 2.5)
+                self.installPendingUpdateIfIdle()
             }
 
             // Let the PC app know who owns the monitors now (best effort).
@@ -465,11 +493,11 @@ final class AppModel {
 
     private static func applyViaPC(_ rule: MonitorRule, target: Mode, pc: PairedPC?) -> (LogEntry.Level, String) {
         let value = target == .pc ? rule.pcInput : rule.macInput
-        guard let pc else { return (.error, "\(rule.name): ПК не підключено — сторінка «ПК»") }
-        guard let id = rule.pcID ?? rule.pnpID else { return (.error, "\(rule.name): невідомий ідентифікатор монітора") }
+        guard let pc else { return (.error, "\(rule.name): no PC paired — see the PC page") }
+        guard let id = rule.pcID ?? rule.pnpID else { return (.error, "\(rule.name): unknown monitor id") }
         switch PCClient.call(pc, "/input", ["monitor": id, "name": rule.name, "value": String(value)], timeout: 5) {
         case .success:
-            return (.success, "\(rule.name) → \(InputSource.name(value)) (через ПК)")
+            return (.success, "\(rule.name) → \(InputSource.name(value)) (via PC)")
         case let .failure(error):
             return (.error, "\(rule.name): \(error)")
         }
@@ -483,19 +511,19 @@ final class AppModel {
         }
         if !candidates.isEmpty, candidates.count >= active.count {
             let kept = candidates.removeLast()
-            addLog(.warning, "Mac не може лишитися зовсім без екранів — \(kept.name) не вимикаю")
+            addLog(.warning, "The Mac can't be left without any screen — keeping \(kept.name) on")
         }
         return candidates
     }
 
     private static func elapsed(since start: Date) -> String {
-        String(format: " (%.1f с)", Date().timeIntervalSince(start))
+        String(format: " (%.1f s)", Date().timeIntervalSince(start))
     }
 
     private static func applyDDC(_ rule: MonitorRule, target: Mode, found: [ExternalDisplay]) -> (LogEntry.Level, String) {
         let value = target == .pc ? rule.pcInput : rule.macInput
         guard let display = found.first(where: { $0.uuid == rule.uuid }) else {
-            return (.warning, "\(rule.name): не підключений до Mac")
+            return (.warning, "\(rule.name): not connected to the Mac")
         }
         do {
             try DDC.write(display, vcp: VCP.inputSource, value: value, timing: .patient)
@@ -509,11 +537,11 @@ final class AppModel {
     func testMonitor(_ rule: MonitorRule, seconds: Double = 5) {
         guard testingMonitor == nil, !isSwitching, rule.method != .ignore else { return }
         if rule.method == .cutSignal, displaysToCut([rule]).isEmpty {
-            addLog(.warning, "\(rule.name): зараз немає сигналу Mac, перевірити не можу")
+            addLog(.warning, "\(rule.name): the Mac has no signal on it right now, can't test")
             return
         }
         testingMonitor = rule.uuid
-        addLog(.info, "Перевірка: \(rule.name) → ПК на \(Int(seconds)) с")
+        addLog(.info, "Test: \(rule.name) → PC for \(Int(seconds)) s")
         let pc = config.pc
         worker.async { [weak self] in
             var notes: [(LogEntry.Level, String)] = []
@@ -527,21 +555,22 @@ final class AppModel {
                 notes.append(Self.applyDDC(rule, target: .mac, found: DisplayDiscovery.externalDisplays()))
             } else if let id = rule.displayID {
                 let off = DisplayOutput.set([id], enabled: false)
-                notes.append(off.isEmpty ? (.success, "\(rule.name): сигнал вимкнено") : (.error, "\(rule.name): не вдалося вимкнути сигнал"))
+                notes.append(off.isEmpty ? (.success, "\(rule.name): Mac signal off") : (.error, "\(rule.name): couldn't turn the signal off"))
                 Thread.sleep(forTimeInterval: seconds)
                 let on = DisplayOutput.set([id], enabled: true)
-                notes.append(on.isEmpty ? (.success, "\(rule.name): сигнал увімкнено") : (.error, "\(rule.name): не вдалося ввімкнути сигнал — натисніть «Повернути всі монітори»"))
+                notes.append(on.isEmpty ? (.success, "\(rule.name): Mac signal on") : (.error, "\(rule.name): couldn't turn the signal back on — use “Bring all monitors back”"))
             }
             DispatchQueue.main.async {
                 for (level, text) in notes { self?.addLog(level, text) }
                 self?.testingMonitor = nil
                 self?.scheduleDisplayRefresh(after: 2.5)
+                self?.refreshPC()
             }
         }
     }
 
     /// Emergency: turns the Mac signal on for every monitor the app may have turned off and
-    /// sends every DDC monitor back to its Mac input.
+    /// sends every monitor back to its Mac input.
     func restoreEverything() {
         let online = Set(DisplayOutput.onlineDisplayIDs())
         var extra: [CutDisplay] = []
@@ -551,21 +580,81 @@ final class AppModel {
             }
         }
         config.cutDisplays.append(contentsOf: extra)
-        switchTo(.mac, reason: "аварійне відновлення")
+        switchTo(.mac, reason: "emergency restore")
     }
 
     func handle(url: URL) -> Bool {
         switch (url.host ?? url.path).lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "/")) {
-        case "mac": switchTo(.mac, reason: "команда \(url.absoluteString)")
-        case "pc": switchTo(.pc, reason: "команда \(url.absoluteString)")
+        case "mac": switchTo(.mac, reason: url.absoluteString)
+        case "pc": switchTo(.pc, reason: url.absoluteString)
         case "toggle": toggle()
         case "restore": restoreEverything()
         case "auto-on": config.automationEnabled = true
         case "auto-off": config.automationEnabled = false
+        case "update": checkForUpdates(userInitiated: true)
         case "show": return true
-        default: addLog(.warning, "Невідома команда: \(url.absoluteString)")
+        default: addLog(.warning, "Unknown command: \(url.absoluteString)")
         }
         return false
+    }
+
+    // MARK: - Updates
+
+    var updateAvailable: ReleaseInfo? {
+        if case let .available(release) = updateState { return release }
+        return nil
+    }
+
+    func checkForUpdates(userInitiated: Bool) {
+        if case .installing = updateState { return }
+        if updateState == .checking { return }
+        updateState = .checking
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let result = Updater.latestRelease()
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.lastUpdateCheck = Date()
+                switch result {
+                case let .success(release):
+                    if AppVersion.isNewer(release.version, than: self.appVersion), release.macAssetURL != nil {
+                        self.updateState = .available(release)
+                        self.addLog(.info, "Update available: \(release.version)")
+                        if self.config.autoUpdate { self.installPendingUpdateIfIdle() }
+                    } else {
+                        self.updateState = .upToDate
+                    }
+                case let .failure(error):
+                    self.updateState = userInitiated ? .failed(error.description) : .idle
+                    if userInitiated { self.addLog(.warning, error.description) }
+                }
+            }
+        }
+    }
+
+    /// Automatic updates wait until no switch is in progress.
+    private func installPendingUpdateIfIdle() {
+        guard config.autoUpdate, let release = updateAvailable, !isSwitching, testingMonitor == nil else { return }
+        installUpdate(release)
+    }
+
+    func installUpdate(_ release: ReleaseInfo) {
+        if case .installing = updateState { return }
+        updateState = .installing(release)
+        addLog(.info, "Installing version \(release.version)…")
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let result = Updater.prepareInstall(release)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                switch result {
+                case .success:
+                    self.addLog(.success, "Restarting into version \(release.version)")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { NSApp.terminate(nil) }
+                case let .failure(error):
+                    self.updateState = .failed(error.description)
+                    self.addLog(.error, "Update failed: \(error)")
+                }
+            }
+        }
     }
 
     // MARK: - PC app
@@ -607,7 +696,7 @@ final class AppModel {
         do {
             try server.start()
         } catch {
-            serverError = "Порт \(NetworkInfo.macPort) зайнятий: \(error.localizedDescription)"
+            serverError = "Port \(NetworkInfo.macPort) is busy: \(error.localizedDescription)"
             addLog(.error, serverError!)
         }
     }
@@ -618,18 +707,18 @@ final class AppModel {
             return .html(Self.downloadPage(macName: macName, hasExe: windowsAppURL != nil))
         case "/download", "/MonitorSwitcher.exe":
             guard let url = windowsAppURL, let data = try? Data(contentsOf: url) else {
-                return .json(["ok": false, "error": "exe не знайдено"], status: 404)
+                return .json(["ok": false, "error": "the Windows app isn't bundled"], status: 404)
             }
-            addLog(.info, "ПК \(remote) завантажує Monitor Switcher для Windows")
+            addLog(.info, "\(remote) is downloading Monitor Switcher for Windows")
             return HTTPResponse(body: data, contentType: "application/octet-stream", filename: "MonitorSwitcher.exe")
         case "/hello":
-            return .json(["ok": true, "name": macName, "app": "mac"])
+            return .json(["ok": true, "name": macName, "app": "mac", "version": appVersion])
         default:
             break
         }
 
         guard var pc = config.pc, query["token"] == pc.token else {
-            return .json(["ok": false, "error": "Mac не впізнає цей ПК"], status: 403)
+            return .json(["ok": false, "error": "this Mac doesn't know this PC"], status: 403)
         }
         if !remote.isEmpty, pc.host != remote {
             pc.host = remote
@@ -639,24 +728,25 @@ final class AppModel {
 
         switch path {
         case "/status":
-            return .json(["ok": true, "name": macName, "mode": mode.rawValue, "automation": config.automationEnabled])
+            return .json(["ok": true, "name": macName, "mode": mode.rawValue, "automation": config.automationEnabled,
+                          "version": appVersion])
         case "/switch":
             let target: Mode = query["mode"] == "pc" ? .pc : .mac
             if target != mode || target == .mac && !config.cutDisplays.isEmpty {
-                switchTo(target, reason: "команда з ПК")
+                switchTo(target, reason: "requested by the PC")
             }
             return .json(["ok": true, "mode": mode.rawValue])
         case "/pc-input":
             let switched = handlePCInput()
             return .json(["ok": true, "mode": mode.rawValue, "switched": switched])
         case "/unpair":
-            addLog(.warning, "ПК \(pc.name) від'єднався")
+            addLog(.warning, "\(pc.name) unpaired itself")
             config.pc = nil
             pcOnline = nil
             pcMonitors = []
             return .json(["ok": true])
         default:
-            return .json(["ok": false, "error": "невідомий запит"], status: 404)
+            return .json(["ok": false, "error": "unknown request"], status: 404)
         }
     }
 
@@ -668,14 +758,14 @@ final class AppModel {
                 guard let self else { return }
                 switch result {
                 case let .success(json):
-                    if self.pcOnline != true { self.addLog(.success, "ПК \(pc.name) на зв'язку") }
+                    if self.pcOnline != true { self.addLog(.success, "\(pc.name) is online") }
                     self.pcOnline = true
                     self.pcError = nil
                     self.pcMonitors = PCClient.monitors(from: json)
                     self.pcVersion = json["version"] as? String
                     self.syncPCIDs()
                 case let .failure(error):
-                    if self.pcOnline == true { self.addLog(.warning, "ПК \(pc.name) не відповідає") }
+                    if self.pcOnline == true { self.addLog(.warning, "\(pc.name) isn't answering") }
                     self.pcOnline = false
                     self.pcError = error.description
                 }
@@ -694,7 +784,7 @@ final class AppModel {
                 self?.discoveredPCs = found
                 self?.isDiscovering = false
                 if found.isEmpty {
-                    self?.pairingError = "ПК не знайдено. Перевірте, що Monitor Switcher запущений на ПК, а Windows дозволила йому доступ до мережі. Можна ввести IP-адресу ПК вручну."
+                    self?.pairingError = "No PC found. Make sure Monitor Switcher is running on the PC and Windows Firewall allows it on private networks. You can also enter the PC's IP address."
                 }
             }
         }
@@ -705,7 +795,7 @@ final class AppModel {
         guard !host.isEmpty, pairingHost == nil else { return }
         pairingHost = host
         pairingError = nil
-        addLog(.info, "Підключаюсь до ПК \(host) — підтвердіть на ПК")
+        addLog(.info, "Pairing with \(host) — confirm on the PC")
         let name = macName
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             let result = PCClient.get(host: host, port: port, path: "/pair",
@@ -716,17 +806,17 @@ final class AppModel {
                 switch result {
                 case let .success(json):
                     guard let token = json["token"] as? String else {
-                        self.pairingError = "ПК не надіслав ключ"
+                        self.pairingError = "The PC didn't send a key"
                         return
                     }
                     let pcName = json["name"] as? String ?? host
                     self.config.pc = PairedPC(name: pcName, host: host, port: port, token: token)
                     self.discoveredPCs = []
-                    self.addLog(.success, "ПК \(pcName) підключено")
+                    self.addLog(.success, "Paired with \(pcName)")
                     self.refreshPC()
                 case let .failure(error):
                     self.pairingError = error.description
-                    self.addLog(.error, "Не вдалося підключити ПК: \(error)")
+                    self.addLog(.error, "Pairing failed: \(error)")
                 }
             }
         }
@@ -738,13 +828,14 @@ final class AppModel {
         config.pc = nil
         pcOnline = nil
         pcMonitors = []
-        addLog(.info, "ПК \(pc.name) від'єднано")
+        addLog(.info, "Unpaired \(pc.name)")
     }
 
     private static func downloadPage(macName: String, hasExe: Bool) -> String {
-        """
-        <!doctype html><html lang="uk"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-        <title>Monitor Switcher для Windows</title>
+        let name = macName.replacingOccurrences(of: "<", with: "&lt;")
+        return """
+        <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+        <title>Monitor Switcher for Windows</title>
         <style>
         body{margin:0;font-family:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;background:#1f1f1f;color:#f3f3f3;display:grid;place-items:center;min-height:100vh}
         .card{background:#2a2a2a;border:1px solid #383838;border-radius:18px;padding:36px 40px;max-width:520px}
@@ -754,12 +845,12 @@ final class AppModel {
         ol{color:#a3a3a3;line-height:1.7;padding-left:20px}
         </style></head><body><div class="card">
         <div class="logo">🖥️</div>
-        <h1>Monitor Switcher для Windows</h1>
-        <p>Цю сторінку віддає Mac «\(macName)». Програма для ПК перемикає монітори разом з Mac і повідомляє йому, коли ви сідаєте за ПК.</p>
-        \(hasExe ? "<a class=\"btn\" href=\"/download\">Завантажити MonitorSwitcher.exe</a>" : "<p>Файл програми не вбудовано в цю збірку Mac-застосунку.</p>")
-        <ol><li>Запустіть завантажений файл. Якщо Windows покаже «Windows захистила ваш ПК» — «Докладніше» → «Однаково запустити».</li>
-        <li>Дозвольте доступ до приватної мережі, якщо з'явиться запит брандмауера.</li>
-        <li>На Mac: Monitor Switcher → «ПК» → «Знайти ПК» і підтвердіть підключення на ПК.</li></ol>
+        <h1>Monitor Switcher for Windows</h1>
+        <p>Served by the Mac “\(name)”. The PC app switches your shared monitors together with the Mac and tells it when you start using the PC.</p>
+        \(hasExe ? "<a class=\"btn\" href=\"/download\">Download MonitorSwitcher.exe</a>" : "<p>This build of the Mac app doesn't include the Windows app.</p>")
+        <ol><li>Run the downloaded file. If Windows says “Windows protected your PC”, choose “More info” → “Run anyway”.</li>
+        <li>Allow access on private networks if Windows Firewall asks.</li>
+        <li>On the Mac: Monitor Switcher → PC → Find PCs, then confirm on the PC.</li></ol>
         </div></body></html>
         """
     }
@@ -779,21 +870,21 @@ final class AppModel {
             }
             config.launchAtLoginWanted = enabled
         } catch {
-            addLog(.error, "Автозапуск: \(error.localizedDescription)")
+            addLog(.error, "Launch at login: \(error.localizedDescription)")
         }
         refreshLoginItem()
         if !quiet || loginItemStatus != (enabled ? .enabled : .notRegistered) {
-            addLog(.info, "Автозапуск: \(loginItemStatusText)")
+            addLog(.info, "Launch at login: \(loginItemStatusText)")
         }
     }
 
     var loginItemStatusText: String {
         switch loginItemStatus {
-        case .enabled: return "увімкнено"
-        case .notRegistered: return "вимкнено"
-        case .requiresApproval: return "чекає підтвердження в Параметрах системи"
-        case .notFound: return "macOS не знайшла застосунок (код notFound)"
-        @unknown default: return "невідомий стан \(loginItemStatus.rawValue)"
+        case .enabled: return "on"
+        case .notRegistered: return "off"
+        case .requiresApproval: return "waiting for approval in System Settings"
+        case .notFound: return "macOS can't find the app"
+        @unknown default: return "unknown state \(loginItemStatus.rawValue)"
         }
     }
 
@@ -810,6 +901,6 @@ final class AppModel {
     func clearLog() { log.removeAll() }
 
     private func formatSeconds(_ seconds: TimeInterval) -> String {
-        seconds < 90 ? "\(Int(seconds.rounded())) с" : "\(Int((seconds / 60).rounded())) хв"
+        seconds < 90 ? "\(Int(seconds.rounded())) s" : "\(Int((seconds / 60).rounded())) min"
     }
 }

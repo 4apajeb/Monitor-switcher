@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
-	<string>uk</string>
+	<string>en</string>
 	<key>CFBundleDisplayName</key>
 	<string>Monitor Switcher</string>
 	<key>CFBundleExecutable</key>
@@ -33,6 +33,8 @@
 			</array>
 		</dict>
 	</array>
+	<key>MSUpdateRepository</key>
+	<string>4apajeb/Monitor-switcher</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.utilities</string>
 	<key>LSMinimumSystemVersion</key>
@@ -42,13 +44,13 @@
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Monitor Switcher зв'язується з програмою на вашому ПК у домашній мережі, щоб перемикати монітори.</string>
+	<string>Monitor Switcher talks to its companion app on your PC over the local network to switch your monitors.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSHumanReadableCopyright</key>
-	<string>Перемикає монітори між Mac і ПК разом з клавіатурою.</string>
+	<string>Switches shared monitors between a Mac and a Windows PC.</string>
 </dict>
 </plist>

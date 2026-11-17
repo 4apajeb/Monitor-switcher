@@ -1,0 +1,53 @@
+# Builds both apps on every push to main that touches the code and publishes a GitHub release.
+# The apps check the latest release and update themselves.
+name: Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Sources/**"
+      - "windows/**"
+      - "Packaging/**"
+      - "scripts/**"
+      - "Package.swift"
+      - "VERSION"
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Pick version
+        id: version
+        run: echo "version=$(tr -d '[:space:]' < VERSION).${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/build.sh
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          gh release create "v$VERSION" \
+            build/MonitorSwitcher-macOS.zip \
+            build/MonitorSwitcher.exe \
+            --title "Monitor Switcher $VERSION" \
+            --generate-notes

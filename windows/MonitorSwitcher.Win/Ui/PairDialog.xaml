@@ -40,13 +40,13 @@
                    HorizontalAlignment="Center" VerticalAlignment="Center"/>
       </Border>
       <StackPanel Margin="16,0,0,0">
-        <TextBlock Text="Підключити Mac?" FontSize="20" FontWeight="Bold"/>
+        <TextBlock Text="Pair with this Mac?" FontSize="20" FontWeight="Bold"/>
         <TextBlock x:Name="Message" Margin="0,8,0,0" TextWrapping="Wrap" Foreground="{SUB}" LineHeight="20"/>
       </StackPanel>
     </DockPanel>
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,24,0,0">
-      <Button x:Name="DenyBtn" Style="{StaticResource Btn}" Content="Відхилити" Margin="0,0,10,0"/>
-      <Button x:Name="AllowBtn" Style="{StaticResource Btn}" Content="Дозволити" Background="{ACCENT}" Foreground="White"/>
+      <Button x:Name="DenyBtn" Style="{StaticResource Btn}" Content="Decline" Margin="0,0,10,0"/>
+      <Button x:Name="AllowBtn" Style="{StaticResource Btn}" Content="Allow" Background="{ACCENT}" Foreground="White"/>
     </StackPanel>
   </StackPanel>
 </Grid>
