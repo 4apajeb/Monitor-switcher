@@ -1,0 +1,8 @@
+.build/
+build/
+windows/**/bin/
+windows/**/obj/
+.swiftpm/
+*.xcodeproj/
+xcuserdata/
+.DS_Store
