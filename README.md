@@ -108,3 +108,7 @@ The version comes from the `VERSION` file (`major.minor`); release builds add th
 - `Sources/MonitorSwitcher/UI` — the SwiftUI interface.
 - `windows/MonitorSwitcher.Win` — the Windows app (WPF + tray icon, DDC/CI through `dxva2.dll`).
 - `scripts` — build script and icon generator.
+
+## License
+
+[MIT](LICENSE)
